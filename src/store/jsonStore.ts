@@ -1,5 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
   AgentEvent,
   AgentIntent,
@@ -220,19 +222,48 @@ export class JsonStore {
   }
 
   private async update(mutator: (data: StoredData) => void): Promise<void> {
-    this.writeChain = this.writeChain.then(async () => {
+    const update = async (): Promise<void> => {
       const data = await this.read();
       mutator(data);
       await this.write(data);
-    });
+    };
+
+    // A transient filesystem error should fail its caller without permanently
+    // poisoning the queue for all later writes.
+    this.writeChain = this.writeChain.then(update, update);
     await this.writeChain;
   }
 
   private async write(data: StoredData): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`);
-    await rename(tempPath, this.filePath);
+    const tempPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
+
+    try {
+      await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`);
+      await renameWithRetry(tempPath, this.filePath);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
+  }
+}
+
+const TRANSIENT_RENAME_ERRORS = new Set(["EACCES", "EBUSY", "EPERM"]);
+
+async function renameWithRetry(source: string, destination: string): Promise<void> {
+  const maxRetries = 6;
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, destination);
+      return;
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !TRANSIENT_RENAME_ERRORS.has(code) || attempt >= maxRetries) {
+        throw error;
+      }
+
+      await delay(25 * 2 ** attempt);
+    }
   }
 }
 
