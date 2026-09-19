@@ -91,6 +91,6 @@ function describe(s: RuntimeStatus, provider: RuntimeProviderKind, agentKind?: s
 
 function limaAgentArg(kind?: string): string | undefined {
   if (kind === "claude_code") return "claude-code";
-  if (kind === "codex" || kind === "cursor" || kind === "devin") return kind;
+  if (kind === "codex" || kind === "opencode" || kind === "cursor" || kind === "devin") return kind;
   return undefined;
 }
