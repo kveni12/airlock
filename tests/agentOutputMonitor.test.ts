@@ -49,6 +49,40 @@ describe("AgentOutputMonitor", () => {
     await harness.cleanup();
   });
 
+  it("normalizes OpenCode messages, tools, and step completion", async () => {
+    const harness = await createHarness("opencode");
+    harness.monitor.observe({
+      stream: "stdout",
+      line: '{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"Running tests"}}'
+    });
+    harness.monitor.observe({
+      stream: "stdout",
+      line: '{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","callID":"call_1","tool":"bash","state":{"status":"running","input":{"command":"npm test"}}}}'
+    });
+    harness.monitor.observe({
+      stream: "stdout",
+      line: '{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","callID":"call_1","tool":"bash","state":{"status":"completed","output":"ok"}}}'
+    });
+    harness.monitor.observe({
+      stream: "stdout",
+      line: '{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","reason":"stop","tokens":{"input":20,"output":5},"cost":0.01}}'
+    });
+    await harness.monitor.flush();
+
+    const events = await harness.events.getEvents(harness.run.id);
+    expect(events.map((event) => event.category + "." + event.action)).toEqual([
+      "agent.message",
+      "agent.tool_call",
+      "agent.tool_result",
+      "agent.step_finished"
+    ]);
+    expect(events[1]).toMatchObject({
+      resource: "bash",
+      metadata: { callId: "call_1", status: "running", format: "vendor_jsonl" }
+    });
+    await harness.cleanup();
+  });
+
   it("extracts Claude tool calls and preserves unstructured stderr", async () => {
     const harness = await createHarness("claude_code");
     harness.monitor.observe({

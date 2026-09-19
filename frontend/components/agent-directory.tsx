@@ -30,7 +30,7 @@ export function AgentDirectory() {
 
 function Page({ children }: { children: React.ReactNode }) { return <div className="mx-auto max-w-7xl space-y-6"><div><p className="eyebrow">Capability inventory</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] md:text-4xl">Agents</h1><p className="mt-2 text-[#657068]">The latest run and configured access for every observed agent.</p></div>{children}</div>; }
 function latestRunPerAgent(runs: RunRecord[]) { return [...new Map(runs.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((run) => [run.agentId, run])).values()]; }
-function displayAgent(run: RunRecord) { const names: Record<string, string> = { claude_code: "Claude Code", codex: "OpenAI Codex", cursor: "Cursor Agent", devin: "Devin" }; return names[run.agent?.kind ?? ""] ?? run.agentId; }
+function displayAgent(run: RunRecord) { const names: Record<string, string> = { claude_code: "Claude Code", codex: "OpenAI Codex", opencode: "OpenCode", cursor: "Cursor Agent", devin: "Devin" }; return names[run.agent?.kind ?? ""] ?? run.agentId; }
 const demoPermissions: PermissionSnapshot = { filesystem: [{ path: "/workspace/src", access: "read_write" }], network: ["oauth.googleapis.com"], secrets: ["GOOGLE_CLIENT_SECRET"], mcpServers: ["github"], tools: ["git", "npm", "shell"] };
 function PermissionChips({ permissions }: { permissions: PermissionSnapshot }) { const items = [
   ...(permissions.mcpServers ?? []).map((value) => ({ icon: Server, value: `${value} MCP` })),

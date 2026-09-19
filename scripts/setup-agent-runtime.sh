@@ -8,6 +8,9 @@ case "${agent_kind}" in
   codex)
     target_vm="agentguard-codex-base"
     ;;
+  opencode)
+    target_vm="agentguard-opencode-base"
+    ;;
   claude-code)
     target_vm="agentguard-claude-code-base"
     ;;
@@ -18,7 +21,7 @@ case "${agent_kind}" in
     target_vm="agentguard-devin-base"
     ;;
   *)
-    echo "Usage: $0 <codex|claude-code|cursor|devin>" >&2
+    echo "Usage: $0 <codex|opencode|claude-code|cursor|devin>" >&2
     exit 64
     ;;
 esac
@@ -47,6 +50,10 @@ case "${agent_kind}" in
   codex)
     limactl shell "${target_vm}" sudo npm install -g @openai/codex
     limactl shell "${target_vm}" codex --version
+    ;;
+  opencode)
+    limactl shell "${target_vm}" sudo npm install -g opencode-ai
+    limactl shell "${target_vm}" opencode --version
     ;;
   claude-code)
     limactl shell "${target_vm}" sudo npm install -g @anthropic-ai/claude-code

@@ -40,6 +40,17 @@ export const AGENT_PROFILES = [
     recommendedSecrets: ["OPENAI_API_KEY"]
   },
   {
+    kind: "opencode",
+    displayName: "OpenCode",
+    description: "Runs OpenCode non-interactively with structured JSON output inside the disposable sandbox VM.",
+    requiresCommand: false,
+    defaultBinary: "opencode",
+    supportsPrompt: true,
+    executionModes: ["sandbox_cli"],
+    defaultBaseVm: "agentguard-opencode-base",
+    recommendedSecrets: ["OPENCODE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+  },
+  {
     kind: "cursor",
     displayName: "Cursor Agent",
     description: "Runs Cursor Agent CLI in non-interactive print mode inside the disposable sandbox VM.",
@@ -105,6 +116,14 @@ function commandForProfile(profile: AgentProfile): string[] {
     return commandWithPrompt(
       profile.binary ?? "codex",
       ["exec", "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "--json", ...(profile.args ?? [])],
+      requiredPrompt(profile)
+    );
+  }
+
+  if (profile.kind === "opencode") {
+    return commandWithPrompt(
+      profile.binary ?? "opencode",
+      ["run", "--format", "json", "--auto", ...(profile.args ?? [])],
       requiredPrompt(profile)
     );
   }
