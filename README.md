@@ -29,6 +29,8 @@ In the UI, open **New request**, record your prompt, then under **Agent & worksp
 - `lima` (recommended): disposable VM; run `npm run vm:setup-agent -- claude_code` (or `codex`, `cursor`) once.
 - `process`: no sandbox — the agent binary runs directly on your machine against a temporary copy of the repo. Your checkout is never mounted, but the agent has your machine's network and environment.
 
+**Devin** runs in its own cloud VM, so the `Devin` agent uses a bridge (`runtime/devin-agentguard-bridge.sh`) that drives a session through the [Devin API](https://docs.devin.ai/api-reference) with `DEVIN_API_KEY`. The planner run asks Devin for the intent as structured output; the builder run asks Devin to push its work to branch `agentguard/<run id>` on the repo's `origin` (Devin needs push access to that remote), then fetches the branch and applies the diff to the workspace so the normal git/filesystem telemetry, intent comparison and review apply to the result. Devin's chat messages are relayed as agent-reported evidence; what Devin does inside its own VM is not observed. Optional: `DEVIN_API_URL`, `DEVIN_SNAPSHOT_ID`, `DEVIN_MAX_ACU`, `DEVIN_POLL_INTERVAL_MS`; set `DEVIN_BRIDGE_COMMAND` to replace the API client with your own command.
+
 Secrets are listed by env var name (e.g. `ANTHROPIC_API_KEY`) and resolved from the backend process environment, so export them before `npm run dev:all`. The planner phase runs the agent against a read-only copy with instructions to answer with the structured intent as JSON; the builder phase runs it with your prompt verbatim and compares what it does against that intent.
 
 ## Install
