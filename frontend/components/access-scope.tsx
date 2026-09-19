@@ -61,8 +61,8 @@ function EnforcementTag({ e }: { e: Enforcement }) {
 }
 
 function TagList({ items, onRemove, empty }: { items: string[]; onRemove: (item: string) => void; empty: string }) {
-  if (!items.length) return <p className="text-sm text-[#657068]">{empty}</p>;
-  return <ul className="flex flex-wrap gap-1.5">{items.map((item) => <li key={item} className="mono inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs"><span>{item}</span><button type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item}`} className="text-[#657068] hover:text-[#9a3d31]"><X className="size-3" /></button></li>)}</ul>;
+  if (!items.length) return <p className="text-sm text-[#64717c]">{empty}</p>;
+  return <ul className="flex flex-wrap gap-1.5">{items.map((item) => <li key={item} className="mono inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs"><span>{item}</span><button type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item}`} className="text-[#64717c] hover:text-[#9a3d31]"><X className="size-3" /></button></li>)}</ul>;
 }
 
 function AddInput({ placeholder, onAdd }: { placeholder: string; onAdd: (value: string) => void }) {
@@ -70,7 +70,7 @@ function AddInput({ placeholder, onAdd }: { placeholder: string; onAdd: (value: 
   const commit = () => { const v = value.trim(); if (v) { onAdd(v); setValue(""); } };
   return <div className="mt-2 flex gap-2">
     <input value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }} placeholder={placeholder} className="mono w-full rounded-lg border bg-white px-3 py-1.5 text-xs" />
-    <button type="button" onClick={commit} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#f1f4ee]">Add</button>
+    <button type="button" onClick={commit} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#f0f2f3]">Add</button>
   </div>;
 }
 
@@ -102,22 +102,22 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly }: { 
   const head = "flex flex-wrap items-center justify-between gap-2";
   const title = "flex items-center gap-1.5 text-sm font-semibold";
 
-  return <div className="space-y-3 rounded-xl border bg-[#f7f9f4] p-4">
+  return <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
     <div>
       <p className="text-sm font-semibold">What the agent can access</p>
-      <p className="mt-1 text-xs text-[#657068]">Start small. Each label says whether Periscope <em>prevents</em> access outside the scope or can only <em>flag</em> it afterwards.{plannerOnly && " The planner always runs read-only regardless of the folder settings below."}</p>
+      <p className="mt-1 text-xs text-[#64717c]">Start small. Each label says whether Periscope <em>prevents</em> access outside the scope or can only <em>flag</em> it afterwards.{plannerOnly && " The planner always runs read-only regardless of the folder settings below."}</p>
     </div>
 
     <div className={block}>
       <div className={head}><p className={title}><Eye className="size-4" />Folders</p><EnforcementTag e={folderE} /></div>
-      <p className="mt-1 text-xs text-[#657068]">{folderE.detail}</p>
+      <p className="mt-1 text-xs text-[#64717c]">{folderE.detail}</p>
       <ul className="mt-2 space-y-1.5">{scope.folders.map((f) => <li key={f.path} className="flex flex-wrap items-center gap-2 text-sm">
         <span className="mono flex-1 truncate">{displayFolder(f.path)}</span>
         <select value={f.access} onChange={(e) => set({ folders: scope.folders.map((g) => g.path === f.path ? { ...g, access: e.target.value as FolderAccess } : g) })} className="rounded-lg border bg-white px-2 py-1 text-xs">
           <option value="read_write">can change</option>
           <option value="read">read only</option>
         </select>
-        <button type="button" disabled={scope.folders.length === 1} onClick={() => set({ folders: scope.folders.filter((g) => g.path !== f.path) })} aria-label={`Remove ${f.path}`} className="text-[#657068] hover:text-[#9a3d31] disabled:opacity-30"><X className="size-3.5" /></button>
+        <button type="button" disabled={scope.folders.length === 1} onClick={() => set({ folders: scope.folders.filter((g) => g.path !== f.path) })} aria-label={`Remove ${f.path}`} className="text-[#64717c] hover:text-[#9a3d31] disabled:opacity-30"><X className="size-3.5" /></button>
       </li>)}</ul>
       <AddInput placeholder="add a folder, e.g. src/auth or tests" onAdd={addFolder} />
       {scope.folders.some((f) => f.path === "/workspace" && f.access === "read_write") && scope.folders.length > 1 && <p className="mt-1 text-xs text-[#815017]"><EyeOff className="mr-1 inline size-3" />&quot;whole repo · can change&quot; makes the other folder rules redundant — set it to read only to actually narrow the scope.</p>}
@@ -126,13 +126,13 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly }: { 
     <div className="grid gap-3 md:grid-cols-2">
       <div className={block}>
         <div className={head}><p className={title}><Globe className="size-4" />Internet</p><EnforcementTag e={NETWORK_ENFORCEMENT} /></div>
-        <p className="mt-1 text-xs text-[#657068]">{scope.hosts.length ? "Only these hosts (and their subdomains) are reachable." : "Off — every outbound request through the proxy is refused."}</p>
+        <p className="mt-1 text-xs text-[#64717c]">{scope.hosts.length ? "Only these hosts (and their subdomains) are reachable." : "Off — every outbound request through the proxy is refused."}</p>
         <div className="mt-2"><TagList items={scope.hosts} onRemove={remove("hosts")} empty="No hosts allowed." /></div>
         <AddInput placeholder="registry.npmjs.org" onAdd={addUnique("hosts")} />
       </div>
       <div className={block}>
         <div className={head}><p className={title}><KeyRound className="size-4" />Secrets</p><EnforcementTag e={SECRET_ENFORCEMENT} /></div>
-        <p className="mt-1 text-xs text-[#657068]">Env var names read from the backend process; values are never stored or shown.</p>
+        <p className="mt-1 text-xs text-[#64717c]">Env var names read from the backend process; values are never stored or shown.</p>
         <div className="mt-2"><TagList items={scope.secrets} onRemove={remove("secrets")} empty="No secrets injected." /></div>
         <AddInput placeholder="ANTHROPIC_API_KEY" onAdd={addUnique("secrets")} />
       </div>

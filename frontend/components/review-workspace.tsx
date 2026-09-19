@@ -36,21 +36,21 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
       <div>
         <p className="eyebrow">Review</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">{review.taskId}</h1>
-        <p className="mt-2 text-sm text-[#657068]">builder {review.builderAgentId} · reviewer {review.reviewerAgentId} · <Link className="underline" href={`/runs/${review.runId}`}>run {review.runId}</Link> · {formatDateTime(review.createdAt)}</p>
+        <p className="mt-2 text-sm text-[#64717c]">builder {review.builderAgentId} · reviewer {review.reviewerAgentId} · <Link className="underline" href={`/runs/${review.runId}`}>run {review.runId}</Link> · {formatDateTime(review.createdAt)}</p>
         {review.summary && <p className="mt-3 text-sm">{review.summary}</p>}
         {review.failureReason && <p className="mt-3 text-sm text-[#9a3d31]">{review.failureReason}</p>}
       </div>
       <aside className="card p-5">
-        <div className="flex items-center justify-between"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Status</span><span className={`status ${statusClass}`}>{review.status.replace("_", " ")}</span></div>
+        <div className="flex items-center justify-between"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Status</span><span className={`status ${statusClass}`}>{review.status.replace("_", " ")}</span></div>
         <dl className="mt-4 space-y-2 text-sm">
-          <div className="flex justify-between"><dt className="text-[#657068]">Files reviewed</dt><dd className="font-semibold">{review.filesReviewed} / {review.filesTotal}</dd></div>
-          <div className="flex justify-between"><dt className="text-[#657068]">Clean files</dt><dd className="font-semibold">{review.cleanFiles}</dd></div>
-          <div className="flex justify-between"><dt className="text-[#657068]">Findings</dt><dd className="font-semibold">{findings.length} ({open.length} unresolved)</dd></div>
+          <div className="flex justify-between"><dt className="text-[#64717c]">Files reviewed</dt><dd className="font-semibold">{review.filesReviewed} / {review.filesTotal}</dd></div>
+          <div className="flex justify-between"><dt className="text-[#64717c]">Clean files</dt><dd className="font-semibold">{review.cleanFiles}</dd></div>
+          <div className="flex justify-between"><dt className="text-[#64717c]">Findings</dt><dd className="font-semibold">{findings.length} ({open.length} unresolved)</dd></div>
         </dl>
         <div className="mt-4 border-t pt-4">
-          {review.status === "approved" ? <p className="text-sm text-[#14623f]">Approved {review.approvedAt && formatDateTime(review.approvedAt)}{review.approval?.actor && ` by ${review.approval.actor}`}{review.approval?.reason && <span className="block text-xs text-[#657068]">{review.approval.reason}</span>}</p>
+          {review.status === "approved" ? <p className="text-sm text-[#14623f]">Approved {review.approvedAt && formatDateTime(review.approvedAt)}{review.approval?.actor && ` by ${review.approval.actor}`}{review.approval?.reason && <span className="block text-xs text-[#64717c]">{review.approval.reason}</span>}</p>
             : <ActionButton disabled={review.status !== "needs_human" || open.length > 0} onClick={async () => { await approveReview(review.id, { actor: "human", reason: "Approved from review workspace" }); await refresh(); }}>Approve review{open.length > 0 && ` (${open.length} unresolved)`}</ActionButton>}
-          {review.status === "needs_human" && open.length > 0 && <p className="mt-2 text-xs text-[#657068]">Resolve or dismiss every unresolved finding before approving.</p>}
+          {review.status === "needs_human" && open.length > 0 && <p className="mt-2 text-xs text-[#64717c]">Resolve or dismiss every unresolved finding before approving.</p>}
         </div>
       </aside>
     </div>
@@ -62,7 +62,7 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
         {findings.map((finding) => <FindingCard key={finding.id} finding={finding} onChanged={refresh} />)}
         {otherFindings.length > 0 && <>
           <h2 className="pt-4 text-lg font-semibold">Other findings on this run</h2>
-          <p className="-mt-2 text-xs text-[#657068]">Policy and intent-drift findings detected by Periscope telemetry for the same run.</p>
+          <p className="-mt-2 text-xs text-[#64717c]">Policy and intent-drift findings detected by Periscope telemetry for the same run.</p>
           {otherFindings.map((finding) => <FindingCard key={finding.id} finding={finding} onChanged={refresh} />)}
         </>}
       </div>
@@ -70,15 +70,15 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
         <div className="card p-5">
           <h2 className="font-semibold">File coverage</h2>
           <ul className="mt-3 divide-y text-sm">{review.fileReviews.map((file) => <li key={file.path} className="flex items-center justify-between gap-3 py-2"><span className="mono text-xs">{file.path}</span><span className={`status ${file.status === "clean" ? "status-good" : file.status === "finding" ? "status-warn" : "status-info"}`}>{file.status}{file.findingIds.length ? ` · ${file.findingIds.length}` : ""}</span></li>)}</ul>
-          {review.fileReviews.length === 0 && <p className="mt-3 text-sm text-[#657068]">No files were reviewed.</p>}
+          {review.fileReviews.length === 0 && <p className="mt-3 text-sm text-[#64717c]">No files were reviewed.</p>}
         </div>
         {files?.diff && <div className="card p-5">
           <button onClick={() => setShowDiff((v) => !v)} className="flex w-full items-center justify-between font-semibold">Diff ({files.files.length} files){showDiff ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}</button>
-          {showDiff && <pre className="mono mt-3 max-h-[560px] overflow-auto rounded-lg bg-[#101913] p-4 text-xs leading-5 text-[#dfe7dc]">{files.diff}</pre>}
+          {showDiff && <pre className="mono mt-3 max-h-[560px] overflow-auto rounded-lg bg-[#182a33] p-4 text-xs leading-5 text-[#dbe1e5]">{files.diff}</pre>}
         </div>}
       </div>
     </div>
   </section>;
 }
 
-function Back() { return <Link href="/reviews" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[#536158]"><ArrowLeft className="size-4" />Back to reviews</Link>; }
+function Back() { return <Link href="/reviews" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[#55636e]"><ArrowLeft className="size-4" />Back to reviews</Link>; }
