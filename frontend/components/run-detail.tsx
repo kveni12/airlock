@@ -80,7 +80,7 @@ export function RunDetail({ runId }: { runId: string }) {
 function Back() { return <Link href="/runs" className="inline-flex items-center gap-2 text-sm text-[#657068]"><ArrowLeft className="size-4" />Back to runs</Link>; }
 function Arrow() { return <div className="flex justify-center text-[#9ca99d]"><ArrowDown className="size-5" /></div>; }
 
-function AlignmentTile({ label, segment, counts }: { label: string; segment?: AlignmentSegment; counts?: RunDetailModel["alignment"]["counts"] }) {
+export function AlignmentTile({ label, segment, counts }: { label: string; segment?: AlignmentSegment; counts?: RunDetailModel["alignment"]["counts"] }) {
   const deviations = counts ? counts.undeclaredFiles + counts.undeclaredDependencies + counts.undeclaredNetworkDestinations + counts.undeclaredTools : 0;
   return <div className="rounded-xl border bg-[#f7f9f4] p-4">
     <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-wider text-[#657068]">{label}</p><AlignmentBadge status={segment?.status} /></div>
@@ -90,7 +90,7 @@ function AlignmentTile({ label, segment, counts }: { label: string; segment?: Al
   </div>;
 }
 
-function RequestSection({ request, analysis }: { request?: HumanRequest; analysis?: RequestAnalysis }) {
+export function RequestSection({ request, analysis }: { request?: HumanRequest; analysis?: RequestAnalysis }) {
   return <Section eyebrow="1 · Human request" title={request ? "What the human asked for" : "No human request linked"}>
     {!request ? <p className="text-sm text-[#657068]">This run was started without a first-class request. Alignment for Request → Intent cannot be evaluated.</p> : <div className="space-y-4">
       <blockquote className="whitespace-pre-wrap rounded-xl border-l-4 border-[#dff869] bg-[#f7f9f4] p-4 text-sm">{request.rawPrompt}</blockquote>
@@ -110,7 +110,7 @@ function StatementList({ label, items }: { label: string; items: RequestAnalysis
   return <div><dt className="text-xs font-semibold uppercase tracking-wider text-[#657068]">{label}</dt><dd className="mt-1.5">{items.length ? <ul className="space-y-1 text-sm">{items.map((s, i) => <li key={i} className="flex flex-wrap items-center gap-2"><span>{s.text}</span><span className={`status ${s.provenance === "explicit" ? "status-good" : "status-warn"}`}>{s.provenance}</span></li>)}</ul> : <span className="text-sm text-[#657068]">none</span>}</dd></div>;
 }
 
-function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onChanged: () => Promise<void> }) {
+export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onChanged: () => Promise<void> }) {
   return <Section eyebrow="2 · Agent intent" title={intent ? intent.goal : "No declared intent"} action={intent && <div className="flex flex-col items-end gap-2"><AlignmentBadge status={intent.alignment?.status} />{intent.approval ? <span className={`status ${intent.approval.status === "approved" ? "status-good" : "status-bad"}`}>{intent.approval.status}{intent.approval.actor && ` by ${intent.approval.actor}`}</span> : <div className="flex gap-2"><ActionButton onClick={async () => { await approveIntent(intent.id, { actor: "human" }); await onChanged(); }}>Approve intent</ActionButton><ActionButton variant="danger" onClick={async () => { await rejectIntent(intent.id, { actor: "human", reason: "Rejected from dashboard" }); await onChanged(); }}>Reject</ActionButton></div>}</div>}>
     {!intent ? <p className="text-sm text-[#657068]">The agent did not declare structured intent before execution, so Intent → Behavior drift cannot be evaluated.</p> : <dl className="space-y-3">
       <KeyValue label="Interpretation">{intent.interpretation || <span className="text-[#657068]">—</span>}</KeyValue>
@@ -128,7 +128,7 @@ function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onChanged:
   </Section>;
 }
 
-function PermissionsSection({ permissions }: { permissions?: PermissionSnapshot }) {
+export function PermissionsSection({ permissions }: { permissions?: PermissionSnapshot }) {
   return <Section eyebrow="3 · Permissions" title="What the agent was allowed to access">
     {!permissions ? <p className="text-sm text-[#657068]">No permission snapshot recorded.</p> : <dl className="space-y-3">
       <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "RW" : "R"}`)} /></KeyValue>
@@ -140,7 +140,7 @@ function PermissionsSection({ permissions }: { permissions?: PermissionSnapshot 
   </Section>;
 }
 
-function BehaviorSection({ behavior, intent }: { behavior?: ObservedBehavior; intent?: AgentIntent }) {
+export function BehaviorSection({ behavior, intent }: { behavior?: ObservedBehavior; intent?: AgentIntent }) {
   if (!behavior) return <Section eyebrow="4 · Observed behavior" title="No telemetry yet"><p className="text-sm text-[#657068]">Behavior appears once the sandbox emits events.</p></Section>;
   const declared = (items: string[] | undefined) => new Set((items ?? []).map((i) => i.replace(/^\.\//, "")));
   const files = declared(intent?.expectedFiles);
@@ -192,7 +192,7 @@ function UnavailableNote({ reason }: { reason: string }) {
   return <span className="inline-flex flex-wrap items-center gap-2 text-sm"><VerificationBadge verification="unavailable" /><span className="text-xs text-[#657068]" title={verificationHelp("unavailable")}>{reason}</span></span>;
 }
 
-function ResultSection({ result, detail }: { result: ResultSummary; detail: RunDetailModel }) {
+export function ResultSection({ result, detail }: { result: ResultSummary; detail: RunDetailModel }) {
   const approval = result.approvalStatus;
   return <Section eyebrow="5 · Result" title="What the agent produced" action={<span className={`status ${approval === "approved" ? "status-good" : approval === "needs_human" ? "status-warn" : "status-muted"}`}>{approval.replace("_", " ")}</span>}>
     <dl className="space-y-3">
@@ -207,7 +207,7 @@ function ResultSection({ result, detail }: { result: ResultSummary; detail: RunD
   </Section>;
 }
 
-const actorStyle: Record<TimelineEntry["actor"], string> = {
+export const actorStyle: Record<TimelineEntry["actor"], string> = {
   human: "bg-[#dff869] text-[#17200f]",
   agent: "bg-[#eff8fc] text-[#265d78]",
   agentguard: "bg-[#17261c] text-[#f5ffd7]",
@@ -216,7 +216,7 @@ const actorStyle: Record<TimelineEntry["actor"], string> = {
   resolver: "bg-[#effaf3] text-[#14623f]"
 };
 
-function Timeline({ entries, error }: { entries: TimelineEntry[]; error: string | null }) {
+export function Timeline({ entries, error }: { entries: TimelineEntry[]; error: string | null }) {
   if (error) return <ErrorBanner message={error} />;
   if (!entries.length) return <Empty title="Timeline is empty" />;
   return <ol className="card divide-y">{entries.map((entry) => <li key={entry.id} className="grid gap-2 p-4 sm:grid-cols-[88px_110px_minmax(0,1fr)] sm:items-start">
