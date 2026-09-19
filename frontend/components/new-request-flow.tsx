@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowDown, Check, ShieldAlert, ShieldCheck } from "lucide-react";
-import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
+import { ArrowDown, Check, Plus, Settings2, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
 import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, DEFAULT_SCOPE, normalizeFolder, scopeToPermissions, summarizeScope, type AccessScope } from "./access-scope";
@@ -39,6 +39,9 @@ export function NewRequestFlow() {
   const [taskId, setTaskId] = useState(`task-${Date.now().toString(36)}`);
   const [prompt, setPrompt] = useState("");
   const [requestResult, setRequestResult] = useState<{ request: HumanRequest; analysis: RequestAnalysis } | null>(null);
+  const [preview, setPreview] = useState<RequestAnalysis | null>(null);
+  const [objectives, setObjectives] = useState<string[]>([]);
+  const [constraints, setConstraints] = useState<string[]>([]);
 
   const [intentMode, setIntentMode] = useState<"planner" | "manual">("manual");
   const [agentId, setAgentId] = useState("demo-planner");
@@ -99,9 +102,25 @@ export function NewRequestFlow() {
     }
   });
 
+  const analyzePrompt = async () => {
+    setError(null);
+    const analysis = await previewRequest(prompt);
+    setPreview(analysis);
+    setObjectives(analysis.objectives.map((o) => o.text));
+    setConstraints(analysis.explicitConstraints.map((c) => c.text));
+  };
+
+  const edited = Boolean(preview) && (
+    JSON.stringify(objectives) !== JSON.stringify(preview?.objectives.map((o) => o.text)) ||
+    JSON.stringify(constraints) !== JSON.stringify(preview?.explicitConstraints.map((c) => c.text))
+  );
+
   const submitRequest = async () => {
     setError(null);
-    const result = await createRequest({ taskId, rawPrompt: prompt });
+    const clean = (items: string[]) => items.map((s) => s.trim()).filter(Boolean);
+    const result = await createRequest(edited
+      ? { taskId, rawPrompt: prompt, analysisMode: "manual", requestedObjectives: clean(objectives), explicitConstraints: clean(constraints) }
+      : { taskId, rawPrompt: prompt });
     setRequestResult(result);
     setIntent(null);
     setAlignment(null);
@@ -182,17 +201,34 @@ export function NewRequestFlow() {
     <div className="mb-7"><p className="eyebrow">Pre-execution</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">New request</h1><p className="mt-2 max-w-2xl text-sm text-[#64717c]">Record the human request, capture the agent&apos;s declared intent before it can write anything, review the request → intent comparison, then start the execution sandbox.</p></div>
     {error && <ErrorBanner message={error} />}
 
-    <Section eyebrow="Step 1" title="Human request" action={requestResult && <span className="status status-good"><Check className="mr-1 size-3.5" />recorded</span>}>
+    <Section eyebrow="Step 1" title="Human request" action={requestResult ? <span className="status status-good"><Check className="mr-1 size-3.5" />recorded</span> : <Link href="/requests/rules" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64717c] hover:text-[#182a33]"><Settings2 className="size-3.5" />Edit extraction rules</Link>}>
       <div className="space-y-3">
         <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Task id</span><input value={taskId} disabled={Boolean(requestResult)} onChange={(e) => setTaskId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
-        <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Prompt (stored verbatim, immutable)</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="Fix the login bug. Do not modify the database." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
-        {!requestResult && <div className="flex gap-2"><ActionButton disabled={!prompt.trim() || !taskId.trim()} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request</ActionButton><ActionButton variant="secondary" onClick={() => setPrompt(DEMO_PROMPT)}>Use demo prompt</ActionButton></div>}
+        <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Prompt (stored verbatim, immutable)</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => { setPrompt(e.target.value); setPreview(null); }} rows={4} placeholder="Fix the login bug. Do not modify the database." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
+        {!requestResult && !preview && <div className="flex gap-2"><ActionButton disabled={!prompt.trim() || !taskId.trim()} onClick={async () => { try { await analyzePrompt(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Analyze prompt</ActionButton><ActionButton variant="secondary" onClick={() => { setPrompt(DEMO_PROMPT); setPreview(null); }}>Use demo prompt</ActionButton></div>}
+        {!requestResult && preview && <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
+          <p className="text-xs text-[#64717c]">Extracted by regex rules (revision {preview.rulesRevision ?? 0}). Edit the lists below before recording — the prompt itself stays verbatim. Edited items are stored as human-provided, not as extracted.</p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <EditableList label="Objectives" items={objectives} onChange={setObjectives} placeholder="What must be done" />
+            <EditableList label="Explicit constraints" items={constraints} onChange={setConstraints} placeholder="What must not happen" />
+          </div>
+          <dl className="grid gap-3 border-t pt-3 md:grid-cols-2">
+            <KeyValue label="Forbidden resources (from constraints)"><Chips items={preview.explicitlyForbiddenResources.map((r) => r.resource)} /></KeyValue>
+            <KeyValue label="Ambiguities"><Chips items={preview.ambiguities} mono={false} /></KeyValue>
+            <div className="md:col-span-2"><KeyValue label="Inferred expectations (not editable, stay inferred)"><Chips items={preview.inferredExpectations.map((o) => o.text)} mono={false} /></KeyValue></div>
+          </dl>
+          <div className="flex flex-wrap items-center gap-2">
+            <ActionButton disabled={objectives.every((o) => !o.trim())} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request{edited ? " (edited)" : ""}</ActionButton>
+            <ActionButton variant="secondary" onClick={analyzePrompt}>Re-extract</ActionButton>
+            <ActionButton variant="secondary" onClick={() => setPreview(null)}>Back to prompt</ActionButton>
+          </div>
+        </div>}
         {requestResult && <dl className="grid gap-3 rounded-xl border bg-[#f6f2ec] p-4 md:grid-cols-2">
-          <KeyValue label="Objectives"><Chips items={requestResult.analysis.objectives.map((o) => o.text)} mono={false} /></KeyValue>
-          <KeyValue label="Explicit constraints"><Chips items={requestResult.analysis.explicitConstraints.map((o) => o.text)} mono={false} /></KeyValue>
+          <KeyValue label="Objectives"><ProvenanceChips items={requestResult.analysis.objectives} /></KeyValue>
+          <KeyValue label="Explicit constraints"><ProvenanceChips items={requestResult.analysis.explicitConstraints} /></KeyValue>
           <KeyValue label="Forbidden resources"><Chips items={requestResult.analysis.explicitlyForbiddenResources.map((r) => r.resource)} /></KeyValue>
           <KeyValue label="Inferred expectations"><Chips items={requestResult.analysis.inferredExpectations.map((o) => o.text)} mono={false} /></KeyValue>
-          <p className="mono text-xs text-[#64717c] md:col-span-2">{requestResult.request.id} · analyzer: {requestResult.analysis.analyzer}</p>
+          <p className="mono text-xs text-[#64717c] md:col-span-2">{requestResult.request.id} · analyzer: {requestResult.analysis.analyzer} · rules rev {requestResult.analysis.rulesRevision ?? 0} · {requestResult.request.analysisMode === "manual" ? "lists edited by human" : "lists extracted by rules"}</p>
         </dl>}
       </div>
     </Section>
@@ -267,4 +303,22 @@ export function NewRequestFlow() {
       </div>}
     </Section>
   </div>;
+}
+
+function EditableList({ label, items, onChange, placeholder }: { label: string; items: string[]; onChange: (items: string[]) => void; placeholder: string }) {
+  return <div>
+    <p className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">{label}</p>
+    <ul className="mt-1.5 space-y-1.5">
+      {items.map((item, i) => <li key={i} className="flex items-center gap-1.5">
+        <input value={item} placeholder={placeholder} autoFocus={item === "" && i === items.length - 1} onChange={(e) => onChange(items.map((v, j) => (j === i ? e.target.value : v)))} className="w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-[#14212a]" />
+        <button type="button" aria-label="Remove" onClick={() => onChange(items.filter((_, j) => j !== i))} className="rounded-md p-1.5 text-[#64717c] hover:bg-white hover:text-[#8c2f26]"><X className="size-3.5" /></button>
+      </li>)}
+    </ul>
+    <button type="button" onClick={() => onChange([...items, ""])} className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-[#64717c] hover:text-[#182a33]"><Plus className="size-3.5" />Add</button>
+  </div>;
+}
+
+function ProvenanceChips({ items }: { items: RequestAnalysis["objectives"] }) {
+  if (!items.length) return <span className="text-sm text-[#64717c]">none</span>;
+  return <div className="flex flex-wrap gap-1.5">{items.map((item, i) => <span key={`${item.text}-${i}`} className="inline-flex items-center gap-1.5 rounded-md border bg-[#e6e9eb]/60 px-2 py-1 text-xs">{item.text}<span className={`status ${item.source === "caller" ? "status-info" : "status-muted"} !px-1.5 !py-0 text-[10px]`}>{item.source === "caller" ? "human-edited" : "extracted"}</span></span>)}</div>;
 }

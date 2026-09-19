@@ -12,6 +12,7 @@ import type {
   HumanRequest,
   PermissionSnapshot,
   RequestAnalysis,
+  RequestAnalyzerRules,
   ResolutionAttempt,
   Review,
   RunDetail,
@@ -29,7 +30,7 @@ export class AgentGuardApiError extends Error {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST"; body?: unknown }): Promise<T> {
+async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT"; body?: unknown }): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -119,8 +120,24 @@ export async function getAgentProfiles(signal?: AbortSignal): Promise<AgentProfi
 
 // ---- requests / intents ----
 
-export function createRequest(body: { taskId: string; rawPrompt: string; explicitConstraints?: string[]; requestedObjectives?: string[] }) {
+export function createRequest(body: { taskId: string; rawPrompt: string; explicitConstraints?: string[]; requestedObjectives?: string[]; analysisMode?: "rules" | "manual" }) {
   return post<{ request: HumanRequest; analysis: RequestAnalysis }>("/api/requests", body);
+}
+
+export function previewRequest(rawPrompt: string, rules?: RequestAnalyzerRules) {
+  return post<RequestAnalysis>("/api/requests/preview", { rawPrompt, rules });
+}
+
+export function getRequestRules(signal?: AbortSignal) {
+  return request<RequestAnalyzerRules>("/api/request-rules", signal);
+}
+
+export function updateRequestRules(rules: RequestAnalyzerRules) {
+  return request<RequestAnalyzerRules>("/api/request-rules", undefined, { method: "PUT", body: rules });
+}
+
+export function resetRequestRules() {
+  return post<RequestAnalyzerRules>("/api/request-rules/reset");
 }
 
 export function getRequest(id: string, signal?: AbortSignal) {
