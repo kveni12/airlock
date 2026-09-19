@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { ArrowDown, ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowLeft, PanelsTopLeft, RefreshCw } from "lucide-react";
 import { approveIntent, approveReview, createReview, getRunDetail, getTimeline, rejectIntent, stopRun } from "@/lib/api";
 import type { AgentIntent, AlignmentSegment, HumanRequest, ObservedBehavior, ObservedItem, PermissionSnapshot, RequestAnalysis, ResultSummary, RunDetail as RunDetailModel, TimelineEntry } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
@@ -40,6 +40,7 @@ export function RunDetail({ runId }: { runId: string }) {
           {run.parentRunId && <p className="mt-1 text-xs text-[#657068]">Resolves finding from <Link className="underline" href={`/runs/${run.parentRunId}`}>{run.parentRunId}</Link></p>}
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link href={`/workbench/${run.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-[#101913] px-3 py-2 text-xs font-semibold text-white hover:bg-[#233126]"><PanelsTopLeft className="size-3.5" />Open in workbench</Link>
           <button onClick={refreshAll} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f4f7f1]"><RefreshCw className="size-3.5" />Refresh</button>
           {ACTIVE.includes(run.status) && <ActionButton variant="danger" confirm="Stop this run and tear down its sandbox?" onClick={async () => { await stopRun(run.id); await refreshAll(); }}>Stop run</ActionButton>}
           {run.status === "completed" && !d.review && (run.purpose ?? "builder") === "builder" && <ActionButton onClick={async () => { await createReview(run.id); await refreshAll(); }}>Start review</ActionButton>}
