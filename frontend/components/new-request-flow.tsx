@@ -62,7 +62,7 @@ export function NewRequestFlow() {
   const chooseAgent = (choice: AgentChoice) => {
     setAgentChoice(choice);
     const profile = profiles.data?.find((p) => p.kind === choice);
-    setScope((s) => ({ ...s, secrets: profile ? [...profile.recommendedSecrets] : [] }));
+    setScope((s) => ({ ...s, secrets: profile ? [...profile.recommendedSecrets] : [], hosts: profile ? [...profile.recommendedHosts] : [] }));
     if (choice !== "script") {
       setAgentId((id) => (id === "demo-planner" ? `${choice}-planner` : id));
       setBuilderAgentId((id) => (id === "demo-builder" ? `${choice}-builder` : id));

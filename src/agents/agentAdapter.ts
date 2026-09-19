@@ -16,7 +16,8 @@ export const AGENT_PROFILES = [
     supportsPrompt: false,
     executionModes: ["sandbox_cli"],
     defaultBaseVm: "agentguard-base",
-    recommendedSecrets: []
+    recommendedSecrets: [],
+    recommendedHosts: []
   },
   {
     kind: "custom",
@@ -26,7 +27,8 @@ export const AGENT_PROFILES = [
     supportsPrompt: true,
     executionModes: ["sandbox_cli", "bridge"],
     defaultBaseVm: "agentguard-base",
-    recommendedSecrets: []
+    recommendedSecrets: [],
+    recommendedHosts: []
   },
   {
     kind: "codex",
@@ -37,7 +39,8 @@ export const AGENT_PROFILES = [
     supportsPrompt: true,
     executionModes: ["sandbox_cli"],
     defaultBaseVm: "agentguard-codex-base",
-    recommendedSecrets: ["OPENAI_API_KEY"]
+    recommendedSecrets: ["OPENAI_API_KEY"],
+    recommendedHosts: ["api.openai.com", "chatgpt.com"]
   },
   {
     kind: "opencode",
@@ -48,7 +51,8 @@ export const AGENT_PROFILES = [
     supportsPrompt: true,
     executionModes: ["sandbox_cli"],
     defaultBaseVm: "agentguard-opencode-base",
-    recommendedSecrets: ["OPENCODE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+    recommendedSecrets: ["OPENCODE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+    recommendedHosts: ["api.openai.com", "api.anthropic.com", "opencode.ai"]
   },
   {
     kind: "cursor",
@@ -59,7 +63,8 @@ export const AGENT_PROFILES = [
     supportsPrompt: true,
     executionModes: ["sandbox_cli"],
     defaultBaseVm: "agentguard-cursor-base",
-    recommendedSecrets: ["CURSOR_API_KEY"]
+    recommendedSecrets: ["CURSOR_API_KEY"],
+    recommendedHosts: ["api.cursor.com", "api2.cursor.sh"]
   },
   {
     kind: "claude_code",
@@ -70,7 +75,8 @@ export const AGENT_PROFILES = [
     supportsPrompt: true,
     executionModes: ["sandbox_cli"],
     defaultBaseVm: "agentguard-claude-code-base",
-    recommendedSecrets: ["ANTHROPIC_API_KEY"]
+    recommendedSecrets: ["ANTHROPIC_API_KEY"],
+    recommendedHosts: ["api.anthropic.com"]
   },
   {
     kind: "devin",
@@ -81,11 +87,12 @@ export const AGENT_PROFILES = [
     supportsPrompt: true,
     executionModes: ["bridge", "sandbox_cli"],
     defaultBaseVm: "agentguard-devin-base",
-    recommendedSecrets: ["DEVIN_API_KEY", "DEVIN_ORG_ID"]
+    recommendedSecrets: ["DEVIN_API_KEY", "DEVIN_ORG_ID"],
+    recommendedHosts: ["api.devin.ai"]
   }
 ] as const;
 
-export function resolveAgent(request: CreateRunRequest): ResolvedAgent {
+export function resolveAgent(request: CreateRunRequest, hostEnv: NodeJS.ProcessEnv = process.env): ResolvedAgent {
   const profile: AgentProfile = request.agent ?? {
     kind: "generic",
     command: request.command
@@ -102,6 +109,7 @@ export function resolveAgent(request: CreateRunRequest): ResolvedAgent {
     defaultBaseVm: profileDefinition(profile.kind).defaultBaseVm,
     environment: {
       ...(request.runtime?.env ?? {}),
+      ...vendorEnvironment(profile.kind, hostEnv),
       ...(profile.env ?? {}),
       AGENTGUARD_AGENT_KIND: profile.kind,
       AGENTGUARD_AGENT_ID: request.agentId,
@@ -111,12 +119,26 @@ export function resolveAgent(request: CreateRunRequest): ResolvedAgent {
   };
 }
 
+/**
+ * Non-secret vendor configuration the sandbox needs to reach the provider. Org-level
+ * Anthropic keys must be pinned to a workspace via a request header, which Claude Code
+ * reads from ANTHROPIC_CUSTOM_HEADERS.
+ */
+export function vendorEnvironment(kind: AgentProfile["kind"], hostEnv: NodeJS.ProcessEnv): Record<string, string> {
+  if (kind === "claude_code" && hostEnv.ANTHROPIC_WORKSPACE_ID?.trim()) {
+    return { ANTHROPIC_CUSTOM_HEADERS: `anthropic-workspace-id: ${hostEnv.ANTHROPIC_WORKSPACE_ID.trim()}` };
+  }
+  return {};
+}
+
 function commandForProfile(profile: AgentProfile): string[] {
   if (profile.kind === "codex") {
-    return commandWithPrompt(
-      profile.binary ?? "codex",
-      ["exec", "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "--json", ...(profile.args ?? [])],
-      requiredPrompt(profile)
+    return withCodexApiKeyLogin(
+      commandWithPrompt(
+        profile.binary ?? "codex",
+        ["exec", "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "--skip-git-repo-check", "--json", ...(profile.args ?? [])],
+        requiredPrompt(profile)
+      )
     );
   }
 
@@ -183,4 +205,19 @@ function profileDefinition(kind: AgentProfile["kind"]): (typeof AGENT_PROFILES)[
 
 function commandWithPrompt(binary: string, args: string[], prompt?: string): string[] {
   return prompt ? [binary, ...args, prompt] : [binary, ...args];
+}
+
+/**
+ * Recent Codex CLIs ignore OPENAI_API_KEY unless it has been registered via
+ * `codex login --with-api-key`; the key is piped from the sandbox environment so it
+ * never appears on a command line. When no key was granted the plain command runs
+ * and Codex reports the missing credential itself.
+ */
+export function withCodexApiKeyLogin(command: string[]): string[] {
+  const [binary, ...args] = command;
+  const script = [
+    `if [ -n "\${OPENAI_API_KEY:-}" ]; then printenv OPENAI_API_KEY | "$0" login --with-api-key >/dev/null 2>&1 || exit $?; fi`,
+    `exec "$0" "$@"`
+  ].join("; ");
+  return ["sh", "-c", script, binary, ...args];
 }

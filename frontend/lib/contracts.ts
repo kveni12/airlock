@@ -94,6 +94,7 @@ export interface AgentProfile {
   defaultBaseVm: string;
   runtimeReady: boolean;
   recommendedSecrets: readonly string[];
+  recommendedHosts: readonly string[];
 }
 
 export interface DashboardSnapshot {
