@@ -15,6 +15,8 @@ const PUBLIC_PATHS = new Set(["/health", "/api/auth/status", "/api/auth/bootstra
 export interface AuthPluginOptions {
   allowedOrigins: string[];
   cookieSecure: boolean;
+  /** `none` is required when the dashboard is served from a different site than the API. */
+  cookieSameSite: "lax" | "none" | "strict";
 }
 
 export async function registerAuth(app: FastifyInstance, auth: AuthService, options: AuthPluginOptions): Promise<void> {
@@ -69,7 +71,7 @@ export async function registerAuth(app: FastifyInstance, auth: AuthService, opti
 
   app.post("/api/auth/logout", async (request, reply) => {
     auth.logout(request.cookies[SESSION_COOKIE]);
-    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    reply.clearCookie(SESSION_COOKIE, { path: "/", ...sessionCookieSite(options) });
     return { ok: true };
   });
 
@@ -108,11 +110,18 @@ async function establishSession(
   reply.setCookie(SESSION_COOKIE, token, {
     path: "/",
     httpOnly: true,
-    sameSite: "lax",
-    secure: options.cookieSecure,
+    ...sessionCookieSite(options),
     maxAge: auth.cookieMaxAgeSeconds
   });
   return user;
+}
+
+/** Browsers drop a `SameSite=None` cookie unless it is also `Secure`, so `none` implies HTTPS. */
+export function sessionCookieSite(options: AuthPluginOptions): { sameSite: "lax" | "none" | "strict"; secure: boolean } {
+  return {
+    sameSite: options.cookieSameSite,
+    secure: options.cookieSecure || options.cookieSameSite === "none"
+  };
 }
 
 /**

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { corsHeadersFor, createApp } from "../src/app.js";
+import { sessionCookieSite } from "../src/auth/authRoutes.js";
 import { AuthService } from "../src/auth/authService.js";
 import { hashPassword, verifyPassword } from "../src/auth/password.js";
 import { JsonStore } from "../src/store/jsonStore.js";
@@ -38,6 +39,22 @@ describe("hijacked SSE responses", () => {
   it("send no CORS headers for a disallowed or absent origin", () => {
     expect(corsHeadersFor("http://evil.example", allowed)).toEqual({});
     expect(corsHeadersFor(undefined, allowed)).toEqual({});
+  });
+});
+
+describe("session cookie site policy", () => {
+  it("keeps the default lax cookie unmarked when Periscope is served over http", () => {
+    expect(sessionCookieSite({ allowedOrigins: [], cookieSecure: false, cookieSameSite: "lax" })).toEqual({
+      sameSite: "lax",
+      secure: false
+    });
+  });
+
+  it("forces Secure for a cross-site cookie, which browsers drop otherwise", () => {
+    expect(sessionCookieSite({ allowedOrigins: [], cookieSecure: false, cookieSameSite: "none" })).toEqual({
+      sameSite: "none",
+      secure: true
+    });
   });
 });
 

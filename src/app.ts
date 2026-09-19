@@ -86,7 +86,11 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   }
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1" });
+  await registerAuth(app, auth, {
+    allowedOrigins,
+    cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
+    cookieSameSite: resolveCookieSameSite()
+  });
 
   const setupToken = await auth.issueSetupToken();
   if (setupToken) {
@@ -557,6 +561,11 @@ function actorFor(request: FastifyRequest): string | undefined {
 function decisionBody(request: FastifyRequest): { actor?: string; reason?: string } {
   const body = (request.body ?? {}) as { actor?: string; reason?: string };
   return { reason: body.reason, actor: actorFor(request) ?? body.actor };
+}
+
+function resolveCookieSameSite(): "lax" | "none" | "strict" {
+  const configured = process.env.PERISCOPE_COOKIE_SAMESITE?.toLowerCase();
+  return configured === "none" || configured === "strict" ? configured : "lax";
 }
 
 function resolveAllowedOrigins(): string[] {
