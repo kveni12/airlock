@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
+import { LineDecoder } from "../telemetry/lineDecoder.js";
 
 interface LimaHandle extends SandboxHandle {
   process?: ChildProcess;
@@ -8,6 +9,7 @@ interface LimaHandle extends SandboxHandle {
   command: string[];
   environment: Record<string, string>;
   workspacePath: string;
+  onOutput?: SandboxCreateOptions["onOutput"];
 }
 
 export interface LimaProviderOptions {
@@ -59,7 +61,8 @@ export class LimaProvider implements SandboxProvider {
       name,
       command: options.run.command,
       environment: { ...runtimeEnvironment(options.proxyUrl), ...options.environment },
-      workspacePath: options.workspacePath
+      workspacePath: options.workspacePath,
+      onOutput: options.onOutput
     };
   }
 
@@ -102,13 +105,19 @@ export class LimaProvider implements SandboxProvider {
       { stdio: ["ignore", "pipe", "pipe"] }
     );
     let stderr = "";
+    const stdoutDecoder = new LineDecoder("stdout", (output) => lima.onOutput?.(output));
+    const stderrDecoder = new LineDecoder("stderr", (output) => lima.onOutput?.(output));
+    child.stdout?.on("data", (chunk: Buffer) => stdoutDecoder.write(chunk));
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString()}`.slice(-16_384);
+      stderrDecoder.write(chunk);
     });
     lima.process = child;
     lima.result = new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("close", (code, signal) => {
+        stdoutDecoder.flush();
+        stderrDecoder.flush();
         if (signal) reject(new Error(`Agent process in ${lima.name} terminated by ${signal}: ${stderr.trim()}`));
         else resolve({ exitCode: code });
       });

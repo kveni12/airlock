@@ -28,7 +28,17 @@ export class FilesystemMonitor {
       .on("change", (filePath) => void this.emit("write", filePath))
       .on("unlink", (filePath) => void this.emit("delete", filePath));
 
-    await new Promise<void>((resolve) => this.watcher?.on("ready", () => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      const watcher = this.watcher;
+      if (!watcher) return reject(new Error("Filesystem watcher was not created"));
+      const onError = (error: unknown) => reject(error);
+      watcher.once("error", onError);
+      watcher.once("ready", () => {
+        watcher.off("error", onError);
+        watcher.on("error", (error) => void this.emitDegraded(error));
+        resolve();
+      });
+    });
   }
 
   async stop(): Promise<void> {
@@ -63,6 +73,21 @@ export class FilesystemMonitor {
       action,
       resource,
       allowed: true
+    });
+  }
+
+  private async emitDegraded(error: unknown): Promise<void> {
+    await this.events.emitEvent({
+      runId: this.run.id,
+      taskId: this.run.taskId,
+      agentId: this.run.agentId,
+      category: "runtime",
+      action: "telemetry_degraded",
+      severity: "medium",
+      metadata: {
+        subsystem: "filesystem",
+        reason: error instanceof Error ? error.message : String(error)
+      }
     });
   }
 }

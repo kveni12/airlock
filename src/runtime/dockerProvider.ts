@@ -1,10 +1,15 @@
 import Docker from "dockerode";
 import type { Container } from "dockerode";
+import { PassThrough } from "node:stream";
 import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
+import { LineDecoder } from "../telemetry/lineDecoder.js";
 
 interface DockerHandle extends SandboxHandle {
   container: Container;
+  onOutput?: SandboxCreateOptions["onOutput"];
+  stdoutDecoder?: LineDecoder;
+  stderrDecoder?: LineDecoder;
 }
 
 export interface DockerProviderOptions {
@@ -41,15 +46,27 @@ export class DockerProvider implements SandboxProvider {
         ReadonlyRootfs: false
       }
     });
-    return { id: container.id, name, container };
+    return { id: container.id, name, container, onOutput: options.onOutput };
   }
 
   async start(handle: SandboxHandle): Promise<void> {
-    await asDockerHandle(handle).container.start();
+    const docker = asDockerHandle(handle);
+    const output = await docker.container.attach({ stream: true, stdout: true, stderr: true });
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    docker.stdoutDecoder = new LineDecoder("stdout", (line) => docker.onOutput?.(line));
+    docker.stderrDecoder = new LineDecoder("stderr", (line) => docker.onOutput?.(line));
+    stdout.on("data", (chunk: Buffer) => docker.stdoutDecoder?.write(chunk));
+    stderr.on("data", (chunk: Buffer) => docker.stderrDecoder?.write(chunk));
+    docker.container.modem.demuxStream(output, stdout, stderr);
+    await docker.container.start();
   }
 
   async wait(handle: SandboxHandle): Promise<{ exitCode: number | null }> {
-    const result = await asDockerHandle(handle).container.wait();
+    const docker = asDockerHandle(handle);
+    const result = await docker.container.wait();
+    docker.stdoutDecoder?.flush();
+    docker.stderrDecoder?.flush();
     return { exitCode: result.StatusCode ?? null };
   }
 

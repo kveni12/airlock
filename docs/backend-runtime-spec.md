@@ -104,6 +104,15 @@ Telemetry modules observe:
 - HTTP/HTTPS proxy destination attempts where the agent honors proxy environment variables,
 - declared secrets made available to the run by identifier only.
 
+Sandbox providers also forward the agent process's stdout and stderr as ordered, bounded lines. An `AgentOutputMonitor` classifies those lines before they reach the Event Collector:
+
+- Codex, Claude Code, and Cursor structured JSONL records are converted into stable AgentGuard events such as `agent.message`, `agent.reasoning`, `mcp.tool_call`, and `mcp.tool_result` where the source supplies the required fields.
+- Any custom agent or remote bridge can emit `AGENTGUARD_EVENT {json}` on stdout. AgentGuard ignores source-supplied run identity and applies the current run's identity before collection.
+- Lines that do not match a structured record become sanitized `process.output` events with stream and sequence metadata.
+- Malformed explicit AgentGuard records produce `runtime.telemetry_degraded`; they do not silently disappear or fail the agent command.
+
+Output records are size-bounded, serialized through a per-run queue, redacted by the central collector, persisted, and streamed over SSE. Raw terminal bytes and secret values are never written directly to the event store.
+
 Telemetry sources emit raw observations to the Event Collector. They do not communicate directly with the frontend.
 
 ### Event Normalization
@@ -146,8 +155,9 @@ Detailed flow:
 5. Filesystem and network telemetry start.
 6. The Lima provider clones `agentguard-{runId}` from the reusable base VM.
 7. The VM starts the configured agent command in `/workspace`.
-8. Telemetry emits raw observations.
-9. Event Collector normalizes, timestamps, redacts, persists, evaluates policy, and broadcasts.
+8. Sandbox stdout/stderr and resource monitors emit raw observations.
+9. The output monitor converts vendor JSONL, the `AGENTGUARD_EVENT` protocol, and unstructured lines into AgentGuard event inputs.
+10. Event Collector normalizes, timestamps, redacts, persists, evaluates policy, and broadcasts.
 10. SSE clients receive events live.
 11. On completion or stop, final git telemetry is collected and stored.
 12. Disposable VM and temporary workspace are cleaned up.
@@ -169,7 +179,7 @@ The create-run request declares allowed secret identifiers. At run creation, the
 
 ### MCP/Tool Access
 
-The MVP stores declared MCP servers and tools in the permission snapshot. It includes normalized event schema support for `mcp.tool_call` and `mcp.tool_result`, but a full generic MCP proxy is not part of P0.
+The MVP stores declared MCP servers and tools in the permission snapshot. It normalizes `mcp.tool_call` and `mcp.tool_result` records emitted by supported agent JSONL or the AgentGuard bridge protocol. Those records are agent-reported evidence; a full generic intercepting and enforcing MCP proxy is not part of P0.
 
 ### VM Isolation
 
@@ -261,6 +271,7 @@ interface AgentEvent {
   agentId: string;
   timestamp: string;
   category:
+    | "agent"
     | "filesystem"
     | "process"
     | "network"
@@ -283,11 +294,18 @@ Supported MVP event actions include:
 - `runtime.completed`
 - `runtime.failed`
 - `runtime.telemetry_degraded`
+- `agent.message`
+- `agent.reasoning_summary`
+- `agent.tool_call`
+- `agent.tool_result`
 - `filesystem.create`
 - `filesystem.write`
 - `filesystem.delete`
 - `process.start`
 - `process.exit`
+- `process.output`
+- `process.command_start`
+- `process.command_exit`
 - `network.request`
 - `network.blocked`
 - `secret.available`
@@ -307,10 +325,10 @@ Actions are stored without duplicating category when the category already suppli
 
 - The sandbox is not hardened for hostile code.
 - Filesystem reads are not traced; creates, writes, deletes, and git changes are prioritized.
-- Process telemetry records the configured command, not every subprocess.
+- Child processes are visible when reported by structured agent output; kernel-level tracing is not implemented.
 - Network monitoring depends on proxy-aware tooling inside the VM.
 - HTTPS traffic is not decrypted; only host/port are observed.
-- MCP observability is represented by interfaces/schema unless a demo integration is added.
+- MCP calls emitted by supported structured output or the AgentGuard event protocol are observable, but a generic enforcing MCP proxy is not implemented.
 - JSON-file persistence is suitable for MVP demos, not concurrent production scale.
 - Permission rules are policy warnings by default rather than hard enforcement.
 - Dependency diffing is basic and focuses on common manifest formats.
@@ -328,6 +346,7 @@ Completed:
 - Added final filesystem baseline reconciliation so VM-mounted writes are recorded even when host filesystem notifications are delayed or dropped.
 - Added an agent adapter layer with generic, custom, Codex, and Devin profiles.
 - Added first-class Claude Code and Cursor profiles, agent-specific VM defaults, reproducible base builders, and executable preflight checks.
+- Added ordered stdout/stderr capture to both Lima and Docker providers, vendor JSONL normalization, a generic `AGENTGUARD_EVENT` bridge protocol, bounded raw-output fallback, and explicit degraded-telemetry events.
 - Added per-run runtime selection for agent-specific Lima bases or Docker images.
 - Added non-secret runtime/agent environment injection while persisting only environment variable names.
 - Added Docker SDK-based runtime orchestration using `dockerode`.
@@ -351,6 +370,8 @@ Completed:
 - Installed Lima 2.2.0 locally, provisioned `agentguard-base`, and passed the real disposable-VM integration test with file and Git telemetry plus VM cleanup.
 - Provisioned and verified reusable agent bases for Codex CLI 0.155.1, Claude Code 2.1.278, and Cursor Agent 2026.09.18-9a7762b, plus the Devin bridge base.
 - Passed a real cross-agent smoke suite that launched disposable VMs through `RuntimeManager`, selected each profile's base automatically, verified the installed executable, recorded successful completion, and removed each clone.
+- Passed real Lima and Docker integration tests that carried raw and structured agent output through the provider boundary into persisted normalized events.
+- Ran the observability-enabled deterministic demo through `POST /api/runs`; it completed in a disposable VM and persisted a 34-event timeline containing agent protocol, process output, filesystem, network, Git, dependency, policy, and runtime events.
 
 Changed from original intent:
 
@@ -366,11 +387,11 @@ Mocked, incomplete, or limited:
 - The VM integration test is gated behind `RUN_VM_TESTS=1` (or `npm run vm:test`) because it creates a real disposable VM.
 - Agent setup scripts install Codex, Claude Code, and Cursor CLIs into reusable bases. Real authenticated coding tasks were not run because vendor API credentials were not provided.
 - Cloud-only Devin execution is observable only through a bridge that exports patches/logs/events back into the AgentGuard VM/workspace.
-- Proprietary internal tool-call semantics are not decoded automatically; all adapters still receive the common filesystem, top-level process, proxy-aware network, Git, and policy telemetry.
+- Codex, Claude Code, and Cursor JSONL receive best-effort normalization. Unknown or changed vendor records fall back to `process.output`; proprietary activity not emitted by a CLI or bridge remains invisible.
 - Filesystem reads are not observed.
-- Process telemetry captures only the configured top-level command, not every subprocess inside the VM.
+- Process telemetry independently captures the configured top-level command. Child commands are visible only when reported by structured agent output.
 - Network visibility depends on `HTTP_PROXY`/`HTTPS_PROXY` being honored by the agent process.
-- MCP observability is schema-ready but no generic MCP proxy is implemented.
+- MCP output records are normalized and streamed, but no generic intercepting or enforcing MCP proxy is implemented.
 - Permission violations are emitted as policy events; per-path declarations within `/workspace` are not kernel-enforced. The VM mount boundary itself is enforced by exposing only the temporary workspace.
 - Dependency change detection is intentionally basic and focused on common manifest formats.
 

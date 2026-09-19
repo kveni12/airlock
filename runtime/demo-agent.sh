@@ -2,6 +2,7 @@
 set -euo pipefail
 
 echo "AgentGuard demo agent starting"
+echo 'AGENTGUARD_EVENT {"category":"agent","action":"message","metadata":{"text":"Preparing the demo workspace changes."}}'
 
 mkdir -p src config
 
@@ -28,8 +29,16 @@ cat > config/demo-sensitive-change.txt <<'EOF'
 This file intentionally triggers the sensitive-file policy for the AgentGuard demo.
 EOF
 
-npm test
+echo 'AGENTGUARD_EVENT {"category":"agent","action":"tool_call","resource":"shell","metadata":{"command":"npm test"}}'
+if npm test; then
+  echo 'AGENTGUARD_EVENT {"category":"agent","action":"tool_result","resource":"shell","metadata":{"command":"npm test","exitCode":0}}'
+else
+  test_exit=$?
+  printf 'AGENTGUARD_EVENT {"category":"agent","action":"tool_result","resource":"shell","metadata":{"command":"npm test","exitCode":%s}}\n' "$test_exit"
+  exit "$test_exit"
+fi
 
 curl -fsSL --max-time 5 http://example.com >/dev/null || true
 
 echo "AgentGuard demo agent completed"
+echo 'AGENTGUARD_EVENT {"category":"agent","action":"message","metadata":{"text":"Demo task completed."}}'

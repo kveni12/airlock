@@ -7,6 +7,7 @@ import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { FilesystemMonitor } from "../telemetry/filesystemMonitor.js";
 import { NetworkProxy } from "../telemetry/networkProxy.js";
+import { AgentOutputMonitor } from "../telemetry/agentOutputMonitor.js";
 import {
   checkoutBranch,
   collectGitSummary,
@@ -121,6 +122,7 @@ export class RuntimeManager {
     let beforeDependencies: DependencySnapshot = {};
     let provider: SandboxProvider | undefined;
     let handle: SandboxHandle | undefined;
+    let outputMonitor: AgentOutputMonitor | undefined;
 
     try {
       workspacePath = await this.createWorkspace(run);
@@ -157,23 +159,26 @@ export class RuntimeManager {
         agentId: run.agentId,
         category: "runtime",
         action: "started",
-      severity: "info",
+        severity: "info",
         metadata: {
           provider: run.runtimeProvider,
           runtime: run.runtimeProvider === "lima" ? run.runtimeBaseVm : run.runtimeImage,
           workspace: "/workspace",
           proxyPort,
-          agentKind: run.agent?.kind ?? "generic"
+          agentKind: run.agent?.kind ?? "generic",
+          outputTelemetry: "jsonl_with_raw_fallback"
         }
       });
 
       provider = this.providers[run.runtimeProvider];
+      outputMonitor = new AgentOutputMonitor(run, this.events);
       const proxyHostname = provider.proxyHostname;
       handle = await provider.create({
         run,
         workspacePath,
         proxyUrl: networkProxy.getProxyUrl(proxyHostname),
-        environment: agentEnvironment
+        environment: agentEnvironment,
+        onOutput: (output) => outputMonitor?.observe(output)
       });
       this.active.set(run.id, { ...(this.active.get(run.id) ?? { stopping: false }), provider, handle });
 
@@ -220,6 +225,7 @@ export class RuntimeManager {
 
       await provider.start(handle);
       const result = await this.waitWithTimeout(provider, handle, run);
+      await outputMonitor.flush();
       const exitCode = result.exitCode;
 
       await this.events.emitEvent({
@@ -257,6 +263,7 @@ export class RuntimeManager {
     } catch (error: unknown) {
       await this.failRun(run, error);
     } finally {
+      await outputMonitor?.flush().catch(() => undefined);
       await fsMonitor?.stop().catch(() => undefined);
       await networkProxy?.stop().catch(() => undefined);
       await this.cleanup(run.id, workspacePath, run.cleanupWorkspace, provider, handle);

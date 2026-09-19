@@ -5,6 +5,12 @@ export interface SandboxCreateOptions {
   workspacePath: string;
   proxyUrl?: string;
   environment: Record<string, string>;
+  onOutput?: (output: SandboxOutput) => void;
+}
+
+export interface SandboxOutput {
+  stream: "stdout" | "stderr";
+  line: string;
 }
 
 export interface SandboxHandle {

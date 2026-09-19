@@ -271,7 +271,44 @@ Use `kind: "custom"`, provide its non-interactive command, and select a base VM 
 }
 ```
 
-Filesystem, process, network-proxy, Git, policy, persistence, and SSE behavior is independent of the selected agent. Agent-specific semantic tool-call events require MCP proxying or a bridge that emits those events; AgentGuard does not infer proprietary internal protocols.
+Filesystem, process, network-proxy, Git, policy, persistence, and SSE behavior is independent of the selected agent. Codex, Claude Code, and Cursor JSONL output receives best-effort semantic normalization. Other agents can use the protocol below without requiring a backend change.
+
+## How Observability Works
+
+AgentGuard distinguishes independently observed evidence from agent-reported activity:
+
+- **Observed by the sandbox:** top-level process lifecycle, stdout/stderr, workspace creates/writes/deletes, proxy-aware network destinations, final Git changes, and policy violations.
+- **Normalized from vendor output:** Codex, Claude Code, and Cursor structured output becomes stable `agent.*`, `process.command_*`, and `mcp.*` events.
+- **Reported by a bridge or custom agent:** one JSON object per line prefixed with `AGENTGUARD_EVENT `. These events receive `metadata.reportedByAgent: true`; source-provided run IDs and trust fields are ignored.
+
+Example custom-agent output:
+
+```text
+AGENTGUARD_EVENT {"category":"agent","action":"tool_call","resource":"shell","metadata":{"command":"npm test"}}
+AGENTGUARD_EVENT {"category":"mcp","action":"tool_call","resource":"github/create_issue","metadata":{"arguments":{"title":"Test failure"}}}
+```
+
+Allowed self-reported categories are `agent`, `process`, and `mcp`. Filesystem, network, policy, secret, and runtime lifecycle events remain backend-owned so an agent cannot claim that its own behavior was allowed or independently observed.
+
+Every output record is line- and size-bounded, ordered per run, sent through centralized secret redaction, persisted, and streamed over SSE. Unknown output becomes `process.output`; malformed explicit protocol messages generate `runtime.telemetry_degraded` rather than disappearing silently.
+
+Representative live sequence:
+
+```text
+runtime.started
+process.start
+agent.message
+agent.tool_call
+process.command_start
+process.output
+filesystem.write
+mcp.tool_call
+mcp.tool_result
+git.file_changed
+git.diff_generated
+process.exit
+runtime.completed
+```
 
 ## Watch Events
 
@@ -364,13 +401,13 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 
 - Filesystem path permissions are stored and evaluated as policy warnings; they are not complete kernel-level enforcement.
 - Filesystem reads are not traced.
-- Process telemetry captures the configured command, not every child process.
+- Child processes are visible when the agent's structured output reports them; kernel-level tracing of every subprocess is not implemented.
 - VM isolation is materially stronger than a container boundary, but this is not yet a hardened multi-tenant sandbox.
 - Network observability depends on tools honoring `HTTP_PROXY`/`HTTPS_PROXY`; direct socket traffic is not blocked.
 - HTTPS bodies are not decrypted or inspected.
 - The network proxy records destination host/port only.
-- Generic MCP proxying is not implemented yet.
-- Agent-independent filesystem, process, network, Git, and policy telemetry works for every adapter. Proprietary internal tool calls are not automatically decoded unless the agent emits them through an AgentGuard bridge or a future MCP proxy.
+- Generic MCP proxy enforcement is not implemented yet. MCP records emitted by supported JSONL adapters or the AgentGuard event protocol are observable but self-reported.
+- Vendor output formats can change; unknown records safely fall back to sanitized `process.output` instead of being discarded.
 - Devin runs remotely by design; AgentGuard can only observe actions and changes that its bridge imports into the disposable VM and event collector.
 - JSON-file persistence is intentionally simple and not designed for high-concurrency production workloads.
 

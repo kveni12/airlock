@@ -8,6 +8,7 @@ export type RunStatus =
   | "stopped";
 
 export type EventCategory =
+  | "agent"
   | "filesystem"
   | "process"
   | "network"

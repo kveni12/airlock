@@ -23,7 +23,16 @@ export class NetworkProxy {
       void this.handleConnect(request, clientSocket as net.Socket, head);
     });
 
-    await new Promise<void>((resolve) => this.server?.listen(0, "0.0.0.0", () => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      const server = this.server;
+      if (!server) return reject(new Error("Proxy server was not created"));
+      const onError = (error: Error) => reject(error);
+      server.once("error", onError);
+      server.listen(0, "0.0.0.0", () => {
+        server.off("error", onError);
+        resolve();
+      });
+    });
     const address = this.server.address();
     if (!address || typeof address === "string") throw new Error("Proxy did not bind to a TCP port");
     this.port = address.port;

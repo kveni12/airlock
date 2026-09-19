@@ -32,7 +32,11 @@ describe.skipIf(!runDockerTests)("RuntimeManager Docker integration", () => {
       taskId: "task_runtime",
       agentId: "agent_runtime",
       repo: { path: repo },
-      command: ["bash", "-lc", "echo after >> src/app.txt && touch src/new.txt"],
+      command: [
+        "bash",
+        "-lc",
+        "echo plain-output && echo 'AGENTGUARD_EVENT {\"category\":\"agent\",\"action\":\"tool_call\",\"resource\":\"shell\"}' && echo after >> src/app.txt && touch src/new.txt"
+      ],
       permissions: { filesystem: [{ path: "/workspace/src", access: "read_write" }], tools: ["shell"] },
       expectedFiles: ["src/app.txt", "src/new.txt"],
       timeoutMs: 30_000
@@ -52,6 +56,8 @@ describe.skipIf(!runDockerTests)("RuntimeManager Docker integration", () => {
     expect(completed).toBe(true);
     expect(recordedEvents.some((event) => event.category === "filesystem")).toBe(true);
     expect(recordedEvents.some((event) => event.category === "git" && event.action === "file_changed")).toBe(true);
+    expect(recordedEvents.some((event) => event.category === "process" && event.action === "output")).toBe(true);
+    expect(recordedEvents.some((event) => event.category === "agent" && event.action === "tool_call")).toBe(true);
 
     await rm(temp, { recursive: true, force: true });
   });
