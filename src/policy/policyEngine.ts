@@ -43,7 +43,8 @@ export class PolicyEngine {
         }
 
         const allowedFiles = context.permissions.filesystem ?? [];
-        if (allowedFiles.length && !allowedFiles.some((permission) => pathWithinPermission(resource, permission.path))) {
+        const writable = allowedFiles.filter((permission) => permission.access === "read_write");
+        if (allowedFiles.length && !writable.some((permission) => pathWithinPermission(resource, permission.path))) {
           violations.push(this.violation(event, "permission_scope", resource, "Agent touched a path outside its declared filesystem scope."));
         }
       }
@@ -91,18 +92,18 @@ function isModificationAction(action: string): boolean {
   return ["create", "write", "delete", "file_changed"].includes(action);
 }
 
-function normalizeResource(resource?: string): string | undefined {
+export function normalizeResource(resource?: string): string | undefined {
   if (!resource) return undefined;
   return resource.replace(/^\/workspace\//, "").replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
-function pathWithinPermission(resource: string, permissionPath: string): boolean {
+export function pathWithinPermission(resource: string, permissionPath: string): boolean {
   const normalizedPermission = normalizeResource(permissionPath) ?? permissionPath;
   if (["/workspace", "/workspace/", ".", ""].includes(normalizedPermission)) return true;
   return resource === normalizedPermission || resource.startsWith(`${normalizedPermission.replace(/\/$/, "")}/`);
 }
 
-function hostAllowed(host: string, allowedHosts: string[]): boolean {
+export function hostAllowed(host: string, allowedHosts: string[]): boolean {
   return allowedHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 }
 
