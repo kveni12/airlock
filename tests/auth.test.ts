@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "../src/app.js";
+import { corsHeadersFor, createApp } from "../src/app.js";
 import { AuthService } from "../src/auth/authService.js";
 import { hashPassword, verifyPassword } from "../src/auth/password.js";
 import { JsonStore } from "../src/store/jsonStore.js";
@@ -21,6 +21,23 @@ describe("password hashing", () => {
     const [a, b] = await Promise.all([hashPassword("same-password-123"), hashPassword("same-password-123")]);
     expect(a.salt).not.toBe(b.salt);
     expect(a.passwordHash).not.toBe(b.passwordHash);
+  });
+});
+
+describe("hijacked SSE responses", () => {
+  const allowed = ["http://localhost:3001"];
+
+  it("echo an allowed browser origin so a credentialed EventSource can read the stream", () => {
+    expect(corsHeadersFor("http://localhost:3001", allowed)).toEqual({
+      "Access-Control-Allow-Origin": "http://localhost:3001",
+      "Access-Control-Allow-Credentials": "true",
+      Vary: "Origin"
+    });
+  });
+
+  it("send no CORS headers for a disallowed or absent origin", () => {
+    expect(corsHeadersFor("http://evil.example", allowed)).toEqual({});
+    expect(corsHeadersFor(undefined, allowed)).toEqual({});
   });
 });
 

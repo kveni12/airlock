@@ -521,7 +521,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "X-Accel-Buffering": "no"
+      "X-Accel-Buffering": "no",
+      ...corsHeadersFor(request.headers.origin, allowedOrigins)
     });
 
     for (const event of await events.getEvents(id)) {
@@ -558,6 +559,16 @@ function resolveAllowedOrigins(): string[] {
   const configured = process.env.PERISCOPE_ALLOWED_ORIGINS;
   if (!configured) return ["http://localhost:3001", "http://127.0.0.1:3001"];
   return configured.split(",").map((origin) => origin.trim()).filter(Boolean);
+}
+
+/** Hijacked responses (the SSE stream) bypass the CORS plugin and must set these themselves. */
+export function corsHeadersFor(origin: string | undefined, allowedOrigins: string[]): Record<string, string> {
+  if (!origin || !allowedOrigins.includes(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin"
+  };
 }
 
 function requiredBodyString(value: unknown, name: string): string {
