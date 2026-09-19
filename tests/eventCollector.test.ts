@@ -30,7 +30,27 @@ describe("EventCollector", () => {
     expect(event.timestamp).toBeTruthy();
     expect(persisted).toHaveLength(1);
     expect(streamed).toEqual([event.id]);
+    expect(event.evidenceSource).toBe("runtime");
+    expect(event.verification).toBe("independent");
 
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("marks agent semantic activity as agent-reported evidence", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "agentguard-event-provenance-"));
+    const store = new JsonStore(path.join(directory, "store.json"));
+    await store.init();
+    const collector = new EventCollector(store, new PolicyEngine(async () => undefined));
+    const event = await collector.emitEvent({
+      runId: "run_reported",
+      taskId: "task_reported",
+      agentId: "agent_reported",
+      category: "mcp",
+      action: "tool_call",
+      resource: "github/read_file"
+    });
+    expect(event.evidenceSource).toBe("agent_reported");
+    expect(event.verification).toBe("agent_reported");
     await rm(directory, { recursive: true, force: true });
   });
 

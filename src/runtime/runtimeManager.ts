@@ -75,7 +75,10 @@ export class RuntimeManager {
       environmentKeys: Object.keys(runtimeEnvironment),
       timeoutMs: request.timeoutMs ?? 30 * 60 * 1000,
       expectedFiles: request.expectedFiles ?? [],
-      cleanupWorkspace: request.cleanupWorkspace ?? true
+      cleanupWorkspace: request.cleanupWorkspace ?? !(request.intentId || request.intent || request.purpose === "resolver"),
+      intentId: request.intentId,
+      purpose: request.purpose ?? "builder",
+      parentRunId: request.parentRunId
     };
 
     await this.store.createRun(run, permissions);
@@ -108,6 +111,17 @@ export class RuntimeManager {
       await active.provider.stop(active.handle).catch(() => undefined);
     }
     return this.store.getRun(runId);
+  }
+
+  async waitForTerminal(runId: string, timeoutMs = 30 * 60 * 1000): Promise<RunRecord> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const run = await this.store.getRun(runId);
+      if (!run) throw new Error(`Run not found: ${runId}`);
+      if (["completed", "failed", "stopped"].includes(run.status)) return run;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for run ${runId}`);
   }
 
   private async executeRun(

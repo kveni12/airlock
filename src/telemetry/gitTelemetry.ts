@@ -26,7 +26,7 @@ export async function getGitState(repoPath: string): Promise<GitSummary["before"
   const [branch, head, status] = await Promise.all([
     git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => ""),
     git(repoPath, ["rev-parse", "HEAD"]).catch(() => ""),
-    git(repoPath, ["status", "--porcelain"]).catch(() => "")
+    git(repoPath, ["status", "--porcelain", "--untracked-files=all"]).catch(() => "")
   ]);
 
   return {
@@ -67,9 +67,10 @@ export async function collectGitSummary(
   dependencyBefore: DependencySnapshot
 ): Promise<GitSummary> {
   const after = await getGitState(repoPath);
+  await git(repoPath, ["add", "-N", "--", "."]).catch(() => "");
   const diff = (await git(repoPath, ["diff", "--no-ext-diff"]).catch(() => "")).trim();
   const numstat = await git(repoPath, ["diff", "--numstat"]).catch(() => "");
-  const changed = await git(repoPath, ["status", "--porcelain"]).catch(() => "");
+  const changed = await git(repoPath, ["status", "--porcelain", "--untracked-files=all"]).catch(() => "");
   const commits = before?.head
     ? (await git(repoPath, ["log", "--format=%H", `${before.head}..HEAD`]).catch(() => ""))
         .split("\n")
