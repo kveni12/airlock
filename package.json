@@ -1,0 +1,28 @@
+{
+  "name": "agent-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "vm:setup": "bash scripts/setup-vm-runtime.sh",
+    "vm:test": "RUN_VM_TESTS=1 vitest run tests/vm.integration.test.ts",
+    "docker:build": "docker build -t agentguard-runtime:latest -f runtime/Dockerfile ."
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "chokidar": "^4.0.3",
+    "dockerode": "^4.0.2",
+    "fastify": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.32",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
