@@ -365,6 +365,8 @@ export interface HumanRequest {
     attachments?: string[];
     metadata?: Record<string, unknown>;
   };
+  /** Authenticated operator who recorded the request. */
+  createdBy?: string;
   createdAt: string;
 }
 
@@ -501,8 +503,25 @@ export interface TimelineEntry {
   };
 }
 
+export type UserRole = "admin" | "operator";
+
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  salt: string;
+  passwordHash: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+/** A user without the credential material, safe to return from the API. */
+export type PublicUser = Omit<User, "salt" | "passwordHash">;
+
 export interface StoredData {
   runs: RunRecord[];
+  users: User[];
   events: AgentEvent[];
   permissions: Record<string, PermissionSnapshot>;
   requests: HumanRequest[];

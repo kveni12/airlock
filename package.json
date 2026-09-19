@@ -19,6 +19,7 @@
     "docker:build": "docker build -t agentguard-runtime:latest -f runtime/Dockerfile ."
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^10.0.1",
     "chokidar": "^4.0.3",
     "dockerode": "^4.0.2",
