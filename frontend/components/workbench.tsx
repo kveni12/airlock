@@ -2,19 +2,18 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, FileCode2, FolderOpen, LayoutList, MessageSquareText, RefreshCw, ShieldAlert, X } from "lucide-react";
+import { ArrowLeft, FileCode2, LayoutList, MessageSquareText, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { approveReview, createReview, getEvents, getFiles, getRunDetail, getTimeline, stopRun } from "@/lib/api";
-import type { AgentEvent, AgentIntent, AlignmentStatus, TimelineEntry } from "@/lib/contracts";
-import { buildTree, parseUnifiedDiff, type FileDiff, type TreeNode } from "@/lib/diff";
+import type { AgentEvent, AlignmentStatus, TimelineEntry } from "@/lib/contracts";
+import { parseUnifiedDiff, type FileDiff } from "@/lib/diff";
 import { subscribeToRunEvents } from "@/lib/event-stream";
 import { useResource } from "@/lib/use-resource";
+import { AccessExplorer, fileMarks, type FileMark } from "./access-explorer";
 import { FindingCard } from "./finding-card";
 import { AlignmentTile, BehaviorSection, IntentSection, PermissionsSection, RequestSection, ResultSection, Timeline, actorStyle } from "./run-detail";
 import { ActionButton, AlignmentBadge, ErrorBanner, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatTime } from "./ui";
 
 const ACTIVE = ["pending", "starting", "running", "stopping"];
-
-type FileMark = "declared" | "undeclared" | "expected_untouched";
 
 export function Workbench({ runId }: { runId: string }) {
   const loadDetail = useCallback((signal: AbortSignal) => getRunDetail(runId, signal), [runId]);
@@ -44,8 +43,8 @@ export function Workbench({ runId }: { runId: string }) {
   }, [events.data, live]);
 
   const diffs = useMemo(() => parseUnifiedDiff(files.data?.diff ?? ""), [files.data?.diff]);
-  const marks = useMemo(() => fileMarks(files.data?.files ?? diffs.map((d) => d.path), detail.data?.intent), [files.data?.files, diffs, detail.data?.intent]);
-  const tree = useMemo(() => buildTree([...marks.keys()]), [marks]);
+  const changedFiles = useMemo(() => files.data?.files ?? diffs.map((d) => d.path), [files.data?.files, diffs]);
+  const marks = useMemo(() => fileMarks(changedFiles, detail.data?.intent), [changedFiles, detail.data?.intent]);
   const selectedDiff = selectedFile ? diffs.find((d) => d.path === selectedFile) : undefined;
 
   const refreshAll = async () => { await Promise.all([detail.refresh(), files.refresh(), timeline.refresh(), events.refresh()]); };
@@ -54,7 +53,6 @@ export function Workbench({ runId }: { runId: string }) {
   if (!detail.data || !run) return <div className="space-y-4"><Back runId={runId} /><div className="skeleton h-12" /><div className="skeleton h-[70vh]" /></div>;
   const d = detail.data;
   const openFindings = d.findings.filter((f) => f.status === "open");
-  const undeclaredCount = [...marks.values()].filter((m) => m === "undeclared").length;
 
   return <div className="-m-4 flex h-[calc(100vh-4rem)] flex-col md:-m-7 lg:-m-9">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-2">
@@ -78,17 +76,10 @@ export function Workbench({ runId }: { runId: string }) {
       </div>
     </div>
 
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_400px]">
+    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_400px]">
       <aside className="min-h-0 overflow-y-auto border-r bg-[#f6f2ec]">
-        <div className="flex items-center justify-between px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#64717c]"><span>Changes</span><span className="font-normal normal-case tracking-normal">{marks.size} file{marks.size === 1 ? "" : "s"}{undeclaredCount > 0 && <span className="text-[#815017]"> · {undeclaredCount} undeclared</span>}</span></div>
-        {marks.size === 0 ? <p className="px-3 pb-3 text-xs text-[#64717c]">{active ? "No git changes observed yet." : run.workspaceAccess === "read_only" ? "Read-only planning run: no writes expected." : "No file changes observed for this run."}</p>
-          : <Tree nodes={tree} marks={marks} selected={selectedFile} onSelect={setSelectedFile} />}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-[10px] text-[#64717c]">
-          <span title="Changed and declared in the intent"><span className="mr-1 text-[#14623f]">●</span>declared</span>
-          <span title="Changed but not declared in the intent"><span className="mr-1 text-[#815017]">●</span>undeclared</span>
-          <span title="Declared in the intent, no change observed"><span className="mr-1 text-[#98a4ad]">○</span>untouched</span>
-          <span className="basis-full" title="The workspace tree is not retained after the sandbox is torn down">Observed via git</span>
-        </div>
+        <AccessExplorer permissions={d.permissions} behavior={d.behaviorSummary} intent={d.intent} changedFiles={changedFiles} selected={selectedFile} onSelect={setSelectedFile}
+          emptyFilesText={active ? "No git changes observed yet." : run.workspaceAccess === "read_only" ? "Read-only planning run: no writes expected." : "No file changes observed for this run."} />
       </aside>
 
       <section className="flex min-h-0 flex-col bg-white">
@@ -131,15 +122,6 @@ export function Workbench({ runId }: { runId: string }) {
   </div>;
 }
 
-function fileMarks(changed: string[], intent?: AgentIntent): Map<string, FileMark> {
-  const declared = (intent?.expectedFiles ?? []).map((f) => f.replace(/^\.\//, ""));
-  const matches = (name: string) => declared.some((p) => p === name || (p.endsWith("/**") && name.startsWith(p.slice(0, -3) + "/")) || (p.endsWith("/*") && name.startsWith(p.slice(0, -2) + "/") && !name.slice(p.length - 1).includes("/")));
-  const marks = new Map<string, FileMark>();
-  for (const file of changed) marks.set(file, intent ? (matches(file) ? "declared" : "undeclared") : "declared");
-  for (const file of declared) if (!file.includes("*") && !marks.has(file)) marks.set(file, "expected_untouched");
-  return marks;
-}
-
 function Back({ runId }: { runId: string }) {
   return <Link href={`/runs/${runId}`} className="inline-flex items-center gap-1.5 text-xs text-[#64717c] hover:text-[#182a33]"><ArrowLeft className="size-3.5" />Run detail</Link>;
 }
@@ -150,30 +132,6 @@ function Chip({ label, status }: { label: string; status: AlignmentStatus | unde
 
 function TabButton({ active, onClick, icon: Icon, children }: { active: boolean; onClick: () => void; icon?: typeof FileCode2; children: React.ReactNode }) {
   return <button onClick={onClick} className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold ${active ? "border-[#182a33] text-[#182a33]" : "border-transparent text-[#64717c] hover:text-[#182a33]"}`}>{Icon && <Icon className="size-3.5" />}{children}</button>;
-}
-
-const markDot: Record<FileMark, string> = { declared: "text-[#14623f]", undeclared: "text-[#815017]", expected_untouched: "text-[#98a4ad]" };
-
-function Tree({ nodes, marks, selected, onSelect, depth = 0 }: { nodes: TreeNode[]; marks: Map<string, FileMark>; selected: string | null; onSelect: (path: string) => void; depth?: number }) {
-  return <ul>{nodes.map((node) => <TreeRow key={node.path} node={node} marks={marks} selected={selected} onSelect={onSelect} depth={depth} />)}</ul>;
-}
-
-function TreeRow({ node, marks, selected, onSelect, depth }: { node: TreeNode; marks: Map<string, FileMark>; selected: string | null; onSelect: (path: string) => void; depth: number }) {
-  const [open, setOpen] = useState(true);
-  const pad = { paddingLeft: `${6 + depth * 12}px` };
-  if (!node.file) {
-    return <li>
-      <button onClick={() => setOpen(!open)} style={pad} className="flex w-full items-center gap-1 py-[3px] pr-2 text-left text-[11px] text-[#3a4650] hover:bg-[#edf0f2]">{open ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />}<FolderOpen className="size-3 shrink-0 text-[#98a4ad]" /><span className="truncate">{node.name}</span></button>
-      {open && <Tree nodes={node.children} marks={marks} selected={selected} onSelect={onSelect} depth={depth + 1} />}
-    </li>;
-  }
-  const mark = marks.get(node.path) ?? "declared";
-  const untouched = mark === "expected_untouched";
-  return <li>
-    <button onClick={() => onSelect(node.path)} style={pad} disabled={untouched} title={untouched ? "Declared in intent but no change observed" : mark} className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] ${selected === node.path ? "bg-[#d1b191] text-[#182a33]" : untouched ? "text-[#98a4ad]" : "text-[#182a33] hover:bg-[#edf0f2]"}`}>
-      <span className="inline-block w-3 shrink-0" /><span className={`text-[8px] ${markDot[mark]}`}>{untouched ? "○" : "●"}</span><span className="truncate">{node.name}</span>
-    </button>
-  </li>;
 }
 
 function DiffView({ diff, path, mark }: { diff?: FileDiff; path: string; mark?: FileMark }) {
