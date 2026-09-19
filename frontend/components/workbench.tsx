@@ -78,16 +78,16 @@ export function Workbench({ runId }: { runId: string }) {
       </div>
     </div>
 
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_400px]">
+    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_400px]">
       <aside className="min-h-0 overflow-y-auto border-r bg-[#f6f2ec]">
-        <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[#64717c]"><span className="inline-flex items-center gap-1.5"><FolderOpen className="size-3.5" />Changed files</span><span>{marks.size}{undeclaredCount > 0 && <span className="ml-1 text-[#815017]">· {undeclaredCount} undeclared</span>}</span></div>
+        <div className="flex items-center justify-between px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#64717c]"><span>Changes</span><span className="font-normal normal-case tracking-normal">{marks.size} file{marks.size === 1 ? "" : "s"}{undeclaredCount > 0 && <span className="text-[#815017]"> · {undeclaredCount} undeclared</span>}</span></div>
         {marks.size === 0 ? <p className="px-3 pb-3 text-xs text-[#64717c]">{active ? "No git changes observed yet." : run.workspaceAccess === "read_only" ? "Read-only planning run: no writes expected." : "No file changes observed for this run."}</p>
           : <Tree nodes={tree} marks={marks} selected={selectedFile} onSelect={setSelectedFile} />}
-        <div className="mt-2 border-t px-3 py-3 text-[11px] text-[#64717c]">
-          <p><span className="text-[#14623f]">●</span> changed, declared in intent</p>
-          <p><span className="text-[#815017]">●</span> changed, not declared</p>
-          <p><span className="text-[#98a4ad]">○</span> declared, no change observed</p>
-          <p className="mt-2">Changes are independently observed via git; the full tree of the workspace is not retained after the sandbox is torn down.</p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-[10px] text-[#64717c]">
+          <span title="Changed and declared in the intent"><span className="mr-1 text-[#14623f]">●</span>declared</span>
+          <span title="Changed but not declared in the intent"><span className="mr-1 text-[#815017]">●</span>undeclared</span>
+          <span title="Declared in the intent, no change observed"><span className="mr-1 text-[#98a4ad]">○</span>untouched</span>
+          <span className="basis-full" title="The workspace tree is not retained after the sandbox is torn down">Observed via git</span>
         </div>
       </aside>
 
@@ -160,19 +160,18 @@ function Tree({ nodes, marks, selected, onSelect, depth = 0 }: { nodes: TreeNode
 
 function TreeRow({ node, marks, selected, onSelect, depth }: { node: TreeNode; marks: Map<string, FileMark>; selected: string | null; onSelect: (path: string) => void; depth: number }) {
   const [open, setOpen] = useState(true);
-  const pad = { paddingLeft: `${8 + depth * 14}px` };
+  const pad = { paddingLeft: `${6 + depth * 12}px` };
   if (!node.file) {
     return <li>
-      <button onClick={() => setOpen(!open)} style={pad} className="flex w-full items-center gap-1 py-1 pr-2 text-left text-xs text-[#3a4650] hover:bg-[#edf0f2]">{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}<span className="mono">{node.name}/</span></button>
+      <button onClick={() => setOpen(!open)} style={pad} className="flex w-full items-center gap-1 py-[3px] pr-2 text-left text-[11px] text-[#3a4650] hover:bg-[#edf0f2]">{open ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />}<FolderOpen className="size-3 shrink-0 text-[#98a4ad]" /><span className="truncate">{node.name}</span></button>
       {open && <Tree nodes={node.children} marks={marks} selected={selected} onSelect={onSelect} depth={depth + 1} />}
     </li>;
   }
   const mark = marks.get(node.path) ?? "declared";
   const untouched = mark === "expected_untouched";
   return <li>
-    <button onClick={() => onSelect(node.path)} style={pad} disabled={untouched} title={untouched ? "Declared in intent but no change observed" : mark} className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs ${selected === node.path ? "bg-[#d1b191] text-[#182a33]" : untouched ? "text-[#98a4ad]" : "text-[#182a33] hover:bg-[#edf0f2]"}`}>
-      <span className={markDot[mark]}>{untouched ? "○" : "●"}</span><span className="mono truncate">{node.name}</span>
-      {mark === "undeclared" && <span className="ml-auto status status-warn !px-1 !py-0 !text-[9px]">undeclared</span>}
+    <button onClick={() => onSelect(node.path)} style={pad} disabled={untouched} title={untouched ? "Declared in intent but no change observed" : mark} className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] ${selected === node.path ? "bg-[#d1b191] text-[#182a33]" : untouched ? "text-[#98a4ad]" : "text-[#182a33] hover:bg-[#edf0f2]"}`}>
+      <span className="inline-block w-3 shrink-0" /><span className={`text-[8px] ${markDot[mark]}`}>{untouched ? "○" : "●"}</span><span className="truncate">{node.name}</span>
     </button>
   </li>;
 }
