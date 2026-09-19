@@ -78,6 +78,14 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  /** Derived by GET /api/runs only; absent on single-run responses. */
+  verdict?: RunVerdict;
+}
+
+export interface RunVerdict {
+  status: "aligned" | "warning" | "conflict" | "no_intent";
+  openFindings: number;
+  reviewStatus?: "pending" | "reviewing" | "needs_human" | "approved" | "rejected" | "failed";
 }
 
 export interface RunFilesResponse {

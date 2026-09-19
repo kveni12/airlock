@@ -50,6 +50,23 @@ describe("RunInsightService", () => {
     await h.cleanup();
   });
 
+  it("derives one list-view verdict per run, following review outcome when present", async () => {
+    const h = await harness();
+    const [run] = await h.store.listRuns();
+    const before = await h.insights.verdicts([run]);
+    expect(before[run.id]).toMatchObject({ status: "warning", openFindings: 3, reviewStatus: "needs_human" });
+
+    const review = (await h.store.listReviews()).find((item) => item.runId === run.id)!;
+    await h.store.updateReview(review.id, { status: "rejected", rejectedAt: now(), rejection: { actor: "human", reason: "nope" } });
+    const rejected = await h.insights.verdicts([run]);
+    expect(rejected[run.id]).toMatchObject({ status: "conflict", reviewStatus: "rejected" });
+
+    const orphan = { ...run, id: "run_orphan", intentId: undefined, requestId: undefined };
+    const noIntent = await h.insights.verdicts([orphan]);
+    expect(noIntent[orphan.id]).toEqual({ status: "no_intent", openFindings: 0, reviewStatus: undefined });
+    await h.cleanup();
+  });
+
   it("orders the timeline chronologically and preserves evidence references and provenance", async () => {
     const h = await harness();
     const timeline = await h.insights.timeline(h.run.id);

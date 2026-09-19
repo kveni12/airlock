@@ -55,6 +55,11 @@ export function Chips({ items, empty = "none", mono = true }: { items: string[];
   return <div className="flex flex-wrap gap-1.5">{items.map((item) => <span key={item} className={`rounded-md border bg-[#e6e9eb]/60 px-2 py-1 text-xs ${mono ? "mono" : ""}`}>{item}</span>)}</div>;
 }
 
+/** Shared square filter chips so Runs / Reviews / Activity look the same. */
+export function FilterChips<T extends string>({ items, value, onChange, label }: { items: readonly T[]; value: T; onChange: (value: T) => void; label?: (item: T) => string }) {
+  return <div className="flex gap-2 overflow-x-auto">{items.map((item) => <button key={item} type="button" onClick={() => onChange(item)} className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold ${label ? "" : "capitalize"} ${value === item ? "border-[#182a33] bg-[#182a33] text-white" : "bg-white text-[#64717c] hover:bg-[#f3f4f5]"}`}>{label ? label(item) : item.replace(/_/g, " ")}</button>)}</div>;
+}
+
 export function KeyValue({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="grid gap-1 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-3"><dt className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">{label}</dt><dd className="min-w-0 text-sm">{children}</dd></div>;
 }

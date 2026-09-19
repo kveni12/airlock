@@ -140,7 +140,9 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.get("/api/runs", async () => {
     const [runs, allIntents] = await Promise.all([store.listRuns(), store.listIntents()]);
-    return { runs: runs.map((run) => withPlannerLinks(run, allIntents)) };
+    const linked = runs.map((run) => withPlannerLinks(run, allIntents));
+    const verdicts = await insights.verdicts(linked);
+    return { runs: linked.map((run) => ({ ...run, verdict: verdicts[run.id] })) };
   });
 
   app.get("/api/runs/:id", async (request, reply) => {

@@ -416,6 +416,13 @@ export interface AlignmentSegment {
   detail: string;
 }
 
+/** Cheap, derived per-run verdict for list views. Not persisted. */
+export interface RunVerdict {
+  status: AlignmentStatus | "no_intent";
+  openFindings: number;
+  reviewStatus?: Review["status"];
+}
+
 export interface AlignmentSummary {
   runId: string;
   requestId?: string;

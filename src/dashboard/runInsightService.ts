@@ -16,6 +16,7 @@ import type {
   ResultSummary,
   Review,
   RunRecord,
+  RunVerdict,
   TimelineEntry
 } from "../types.js";
 
@@ -58,6 +59,21 @@ export class RunInsightService {
 
   async result(runId: string): Promise<ResultSummary> {
     return buildResult(await this.load(runId));
+  }
+
+  /** One derived verdict per run, for list views (avoids loading full RunDetail per row). */
+  async verdicts(runs: RunRecord[]): Promise<Record<string, RunVerdict>> {
+    const [findings, reviews, intents] = await Promise.all([this.store.listFindings(), this.store.listReviews(), this.store.listIntents()]);
+    const out: Record<string, RunVerdict> = {};
+    for (const run of runs) {
+      const intent = run.intentId ? intents.find((item) => item.id === run.intentId) : intents.find((item) => item.runId === run.id || item.planningRunId === run.id);
+      const own = findings.filter((finding) => finding.runId === run.id || (!finding.runId && intent?.alignment?.findingIds.includes(finding.id)));
+      const review = reviews.filter((candidate) => candidate.runId === run.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      const open = own.filter((finding) => finding.status !== "resolved" && finding.status !== "dismissed");
+      const status: RunVerdict["status"] = review?.status === "rejected" || review?.status === "failed" ? "conflict" : review?.status === "approved" ? "aligned" : !intent ? "no_intent" : statusFor(own);
+      out[run.id] = { status, openFindings: open.length, reviewStatus: review?.status };
+    }
+    return out;
   }
 
   async timeline(runId: string): Promise<TimelineEntry[]> {

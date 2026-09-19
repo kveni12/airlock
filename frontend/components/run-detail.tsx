@@ -12,12 +12,14 @@ import { ActionButton, AlignmentBadge, Chips, Empty, ErrorBanner, KeyValue, RunS
 
 const ACTIVE = ["pending", "starting", "running", "stopping"];
 
-export function RunDetail({ runId }: { runId: string }) {
+type Tab = "chain" | "findings" | "timeline";
+
+export function RunDetail({ runId, initialTab = "chain" }: { runId: string; initialTab?: Tab }) {
   const loadDetail = useCallback((signal: AbortSignal) => getRunDetail(runId, signal), [runId]);
   const loadTimeline = useCallback((signal: AbortSignal) => getTimeline(runId, signal), [runId]);
   const detail = useResource(loadDetail);
   const timeline = useResource(loadTimeline, 6000);
-  const [tab, setTab] = useState<"chain" | "findings" | "timeline">("chain");
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   const refreshAll = async () => { await Promise.all([detail.refresh(), timeline.refresh()]); };
 

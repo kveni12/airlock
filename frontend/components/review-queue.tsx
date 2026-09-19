@@ -6,7 +6,7 @@ import { ArrowRight, Search } from "lucide-react";
 import { listReviews } from "@/lib/api";
 import type { Review } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
-import { Empty, ErrorBanner, formatDateTime } from "./ui";
+import { Empty, ErrorBanner, FilterChips, formatDateTime } from "./ui";
 
 const filters = ["all", "needs_human", "reviewing", "approved", "rejected", "failed"] as const;
 
@@ -40,7 +40,7 @@ export function ReviewQueue() {
     {error && <div className="mb-5"><ErrorBanner message={error} onRetry={refresh} /></div>}
     <div className="mb-5 flex flex-col gap-3 sm:flex-row">
       <label className="relative flex-1"><Search className="absolute left-3 top-3 size-4 text-[#76838d]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search task, agent, or run id" className="w-full rounded-lg border bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[#19734a]" /></label>
-      <div className="flex gap-2 overflow-x-auto">{filters.map((item) => <button key={item} onClick={() => setFilter(item)} className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold capitalize ${filter === item ? "border-[#182a33] bg-[#182a33] text-white" : "bg-white text-[#64717c]"}`}>{item.replace("_", " ")}</button>)}</div>
+      <FilterChips items={filters} value={filter} onChange={setFilter} />
     </div>
     <div className="grid gap-4">
       {reviews.map((review) => <Link href={`/reviews/${review.id}`} key={review.id} className="card group grid gap-4 p-5 transition hover:-translate-y-0.5 hover:border-[#98a4ad] hover:shadow-sm sm:grid-cols-[minmax(0,1fr)_auto]">
