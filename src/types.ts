@@ -19,6 +19,8 @@ export type EventCategory =
   | "runtime";
 
 export type EventSeverity = "info" | "low" | "medium" | "high" | "critical";
+export type EvidenceSource = "runtime" | "filesystem" | "proxy" | "git" | "agent_reported" | "reviewer";
+export type EvidenceVerification = "independent" | "agent_reported" | "inferred";
 
 export interface AgentEvent {
   id: string;
@@ -32,6 +34,9 @@ export interface AgentEvent {
   allowed?: boolean;
   severity?: EventSeverity;
   metadata?: Record<string, unknown>;
+  evidenceSource?: EvidenceSource;
+  verification?: EvidenceVerification;
+  correlationId?: string;
 }
 
 export interface FilePermission {
@@ -43,8 +48,16 @@ export interface PermissionSnapshot {
   filesystem?: FilePermission[];
   network?: string[];
   secrets?: string[];
-  mcpServers?: string[];
+  mcpServers?: Array<string | MCPServer>;
   tools?: string[];
+}
+
+export interface MCPServer {
+  id: string;
+  name: string;
+  transport: "stdio" | "http" | "sse" | "other";
+  tools?: string[];
+  status: "available" | "connected" | "disabled";
 }
 
 export interface CreateRunRequest {
@@ -61,6 +74,31 @@ export interface CreateRunRequest {
   timeoutMs?: number;
   cleanupWorkspace?: boolean;
   runtime?: RuntimeConfig;
+  intent?: AgentIntentDraft;
+  intentId?: string;
+  purpose?: "builder" | "planner" | "resolver";
+  parentRunId?: string;
+}
+
+export interface AgentIntentDraft {
+  goal: string;
+  summary?: string;
+  plannedChanges: string[];
+  expectedFiles: string[];
+  expectedDependencies?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedSecrets?: string[];
+  constraints: string[];
+  createdBy?: { agentId: string; agentType: string };
+}
+
+export interface AgentIntent extends Omit<Required<AgentIntentDraft>, "createdBy"> {
+  id: string;
+  taskId: string;
+  runId?: string;
+  createdBy: { agentId: string; agentType: string };
+  createdAt: string;
 }
 
 export type AgentKind = "generic" | "codex" | "cursor" | "claude_code" | "devin" | "custom";
@@ -157,12 +195,115 @@ export interface RunRecord {
   expectedFiles: string[];
   cleanupWorkspace: boolean;
   gitSummary?: GitSummary;
+  intentId?: string;
+  purpose?: "builder" | "planner" | "resolver";
+  parentRunId?: string;
+}
+
+export type FindingSource = "policy" | "intent_comparison" | "reviewer";
+export type FindingType =
+  | "security"
+  | "spec_drift"
+  | "permission"
+  | "network"
+  | "dependency"
+  | "tests"
+  | "code_quality"
+  | "sensitive_change"
+  | "other";
+export type FindingStatus = "open" | "resolving" | "re_reviewing" | "resolved" | "dismissed";
+
+export interface FindingEvidence {
+  eventIds?: string[];
+  diffSnippet?: string;
+  observedResource?: string;
+  declaredResource?: string;
+}
+
+export interface Finding {
+  id: string;
+  taskId: string;
+  runId: string;
+  reviewId?: string;
+  source: FindingSource;
+  type: FindingType;
+  severity: EventSeverity;
+  title: string;
+  description: string;
+  file?: string;
+  line?: number;
+  evidence?: FindingEvidence;
+  status: FindingStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  dismissedAt?: string;
+  dismissal?: { reason?: string; actor?: string };
+}
+
+export interface FileReview {
+  path: string;
+  status: "pending" | "reviewing" | "clean" | "finding";
+  findingIds: string[];
+}
+
+export interface Review {
+  id: string;
+  taskId: string;
+  runId: string;
+  builderAgentId: string;
+  reviewerAgentId: string;
+  status: "pending" | "reviewing" | "needs_human" | "approved" | "failed";
+  filesTotal: number;
+  filesReviewed: number;
+  cleanFiles: number;
+  filesWithFindings: number;
+  summary?: string;
+  fileReviews: FileReview[];
+  findingIds: string[];
+  createdAt: string;
+  completedAt?: string;
+  approvedAt?: string;
+  approval?: { actor?: string; reason?: string };
+  failureReason?: string;
+}
+
+export interface ResolutionAttempt {
+  id: string;
+  findingId: string;
+  taskId: string;
+  originalRunId: string;
+  resolutionRunId?: string;
+  reviewId?: string;
+  resolverAgentId: string;
+  status: "pending" | "running" | "re_reviewing" | "resolved" | "failed";
+  filesChanged: string[];
+  resultingDiff?: string;
+  testResult?: { passed: boolean; exitCode?: number | null; eventIds: string[] };
+  reReviewResult?: { passed: boolean; summary: string };
+  createdAt: string;
+  completedAt?: string;
+  failureReason?: string;
+}
+
+export interface BehaviorSummary {
+  runId: string;
+  filesModified: Array<{ resource: string; eventIds: string[] }>;
+  dependencyChanges: Array<{ name: string; action: "dependency_added" | "dependency_removed"; eventIds: string[] }>;
+  networkDestinations: Array<{ resource: string; allowed?: boolean; eventIds: string[] }>;
+  secretsObserved: Array<{ resource: string; eventIds: string[] }>;
+  mcpTools: Array<{ resource: string; server?: string; eventIds: string[]; verification: EvidenceVerification }>;
+  commands: Array<{ resource: string; eventIds: string[]; exitCode?: number | null }>;
+  tests: Array<{ command: string; passed?: boolean; eventIds: string[] }>;
 }
 
 export interface StoredData {
   runs: RunRecord[];
   events: AgentEvent[];
   permissions: Record<string, PermissionSnapshot>;
+  intents: AgentIntent[];
+  findings: Finding[];
+  reviews: Review[];
+  resolutions: ResolutionAttempt[];
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &

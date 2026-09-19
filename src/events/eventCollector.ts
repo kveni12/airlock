@@ -23,6 +23,7 @@ export class EventCollector {
     const event = this.normalize(input);
     await this.store.addEvent(event);
     this.emitter.emit(event.runId, event);
+    this.emitter.emit("*", event);
 
     const policyEvents = await this.policyEngine.evaluate(event);
     for (const policyEvent of policyEvents) {
@@ -35,6 +36,11 @@ export class EventCollector {
   subscribe(runId: string, listener: EventListener): () => void {
     this.emitter.on(runId, listener);
     return () => this.emitter.off(runId, listener);
+  }
+
+  subscribeAll(listener: EventListener): () => void {
+    this.emitter.on("*", listener);
+    return () => this.emitter.off("*", listener);
   }
 
   registerSecrets(runId: string, secrets: Record<string, string>): void {
@@ -66,7 +72,24 @@ export class EventCollector {
       resource: sanitized.resource,
       allowed: sanitized.allowed,
       severity: sanitized.severity,
-      metadata: sanitized.metadata
+      metadata: sanitized.metadata,
+      evidenceSource: sanitized.evidenceSource ?? evidenceProvenance(sanitized).evidenceSource,
+      verification: sanitized.verification ?? evidenceProvenance(sanitized).verification,
+      correlationId: sanitized.correlationId
     };
   }
+}
+
+function evidenceProvenance(event: EventInput): Pick<AgentEvent, "evidenceSource" | "verification"> {
+  if (event.category === "filesystem") return { evidenceSource: "filesystem", verification: "independent" };
+  if (event.category === "network") return { evidenceSource: "proxy", verification: "independent" };
+  if (event.category === "git") return { evidenceSource: "git", verification: "independent" };
+  if (event.category === "policy") return { evidenceSource: "runtime", verification: "inferred" };
+  if (event.category === "agent" || event.category === "mcp") {
+    return { evidenceSource: "agent_reported", verification: "agent_reported" };
+  }
+  if (event.category === "process" && event.metadata?.format === "vendor_jsonl") {
+    return { evidenceSource: "agent_reported", verification: "agent_reported" };
+  }
+  return { evidenceSource: "runtime", verification: "independent" };
 }

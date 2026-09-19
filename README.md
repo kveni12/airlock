@@ -1,10 +1,10 @@
 # AgentGuard
 
-AgentGuard monitors AI coding-agent runs by creating a disposable virtual machine, executing a configured command, collecting normalized telemetry, and streaming events to the dashboard over SSE. Lima VMs are the default runtime; Docker remains an optional compatibility provider.
+AgentGuard governs AI coding-agent runs by recording intent and permissions, executing builders in disposable sandboxes, collecting normalized telemetry, comparing intent with behavior, reviewing changes, resolving findings in new sandboxes, and recording human approval. Lima VMs are the default runtime; Docker remains an optional compatibility provider.
 
-This repository currently implements the backend MVP for:
+This repository implements the backend workflow for:
 
-`CREATE SANDBOX -> EXECUTE -> OBSERVE`
+`DECLARE INTENT -> RUN -> OBSERVE -> FIND -> REVIEW -> RESOLVE -> RE-REVIEW -> APPROVE`
 
 ## Requirements
 
@@ -86,6 +86,29 @@ The response includes a `runId`. Query status:
 ```bash
 curl -sS http://localhost:3000/api/runs/RUN_ID
 ```
+
+## Phase 2 Governance Demo
+
+After `npm run vm:setup` and while the backend is running, execute:
+
+```bash
+npm run demo:phase2
+```
+
+The deterministic demo:
+
+1. declares an OAuth intent,
+2. runs a builder in a disposable VM,
+3. creates legitimate OAuth source and tests,
+4. intentionally creates `infra/prod.tf` outside intent,
+5. generates policy and intent-comparison findings with event evidence,
+6. reviews every changed file,
+7. sends the infrastructure finding to a resolver sandbox,
+8. reruns tests and re-reviews the resulting diff,
+9. marks the original finding resolved only after verification,
+10. records human approval without modifying the developer checkout.
+
+The script prints the builder run, finding, reviews, resolution, and final dashboard summary. `jq` is required.
 
 ## Agent Compatibility
 
@@ -336,6 +359,22 @@ GET  /api/runs/:id/events
 GET  /api/runs/:id/permissions
 GET  /api/runs/:id/files
 GET  /api/runs/:id/stream
+POST /api/intents
+POST /api/intents/generate
+GET  /api/intents/:id
+GET  /api/runs/:id/intent
+GET  /api/findings
+GET  /api/findings/:id
+POST /api/findings/:id/dismiss
+POST /api/findings/:id/resolve
+GET  /api/resolutions/:id
+POST /api/runs/:id/review
+GET  /api/reviews
+GET  /api/reviews/:id
+GET  /api/reviews/:id/findings
+POST /api/reviews/:id/approve
+GET  /api/dashboard/summary
+GET  /api/agents/:id/summary
 ```
 
 `GET /api/agent-profiles` returns supported adapter kinds, default VM bases, recommended secret identifiers, execution modes, and `runtimeReady` for each local base.
@@ -395,6 +434,12 @@ npm run docker:build
 RUN_DOCKER_TESTS=1 npm test
 ```
 
+Run the complete Phase 2 governance integration test with Docker:
+
+```bash
+npm run phase2:test
+```
+
 ## Security Limitations
 
 This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostile code.
@@ -407,6 +452,8 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 - HTTPS bodies are not decrypted or inspected.
 - The network proxy records destination host/port only.
 - Generic MCP proxy enforcement is not implemented yet. MCP records emitted by supported JSONL adapters or the AgentGuard event protocol are observable but self-reported.
+- The default reviewer is deterministic and operates on a bounded immutable data snapshot. A production reviewer-agent sandbox is represented by an interface but not provisioned as a maintained model-specific VM yet.
+- Governance-enabled workspaces are retained for resolution chains; production deployments need a retention policy and garbage collector.
 - Vendor output formats can change; unknown records safely fall back to sanitized `process.output` instead of being discarded.
 - Devin runs remotely by design; AgentGuard can only observe actions and changes that its bridge imports into the disposable VM and event collector.
 - JSON-file persistence is intentionally simple and not designed for high-concurrency production workloads.
@@ -416,11 +463,11 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 This backend owns:
 
 ```text
-CREATE SANDBOX -> EXECUTE -> OBSERVE
+DECLARE INTENT -> CONFIGURE ACCESS -> RUN -> OBSERVE -> COMPARE -> REVIEW -> FIND -> RESOLVE -> RE-REVIEW -> APPROVE
 ```
 
-It does not yet implement:
+Approval is a recorded governance decision. It intentionally does not:
 
 ```text
-DECLARE INTENT -> REVIEW -> RESOLVE -> APPROVE
+APPLY TO ORIGINAL CHECKOUT -> COMMIT -> PUSH -> MERGE
 ```
