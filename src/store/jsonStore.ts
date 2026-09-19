@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentEvent,
@@ -230,7 +230,9 @@ export class JsonStore {
 
   private async write(data: StoredData): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(data, null, 2)}\n`);
+    const tempPath = `${this.filePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`);
+    await rename(tempPath, this.filePath);
   }
 }
 
