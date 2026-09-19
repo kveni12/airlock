@@ -24,6 +24,15 @@ describe("PolicyEngine", () => {
     await expect(engine.evaluate(baseEvent)).resolves.toHaveLength(0);
   });
 
+  it("treats a permission rooted at /workspace as covering every workspace path", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "read_write" }] },
+      expectedFiles: ["src/app.js"]
+    }));
+
+    await expect(engine.evaluate(baseEvent)).resolves.toHaveLength(0);
+  });
+
   it("flags unexpected and sensitive file changes", async () => {
     const engine = new PolicyEngine(async () => ({
       permissions: { filesystem: [{ path: "/workspace/src", access: "read_write" }] },
