@@ -5,7 +5,9 @@ import type {
   AgentIntent,
   Finding,
   GitSummary,
+  HumanRequest,
   PermissionSnapshot,
+  RequestAnalysis,
   ResolutionAttempt,
   Review,
   RunRecord,
@@ -65,6 +67,41 @@ export class JsonStore {
   async getPermissions(runId: string): Promise<PermissionSnapshot | undefined> {
     const data = await this.read();
     return data.permissions[runId];
+  }
+
+  async createRequest(request: HumanRequest): Promise<void> {
+    await this.update((data) => data.requests.push(request));
+  }
+
+  async attachRequestToRun(requestId: string, runId: string): Promise<HumanRequest | undefined> {
+    let updated: HumanRequest | undefined;
+    await this.update((data) => {
+      const request = data.requests.find((item) => item.id === requestId);
+      if (!request) return;
+      request.runId = runId;
+      updated = request;
+    });
+    return updated;
+  }
+
+  async getRequest(requestId: string): Promise<HumanRequest | undefined> {
+    return (await this.read()).requests.find((request) => request.id === requestId);
+  }
+
+  async getRequestForRun(runId: string): Promise<HumanRequest | undefined> {
+    return (await this.read()).requests.find((request) => request.runId === runId);
+  }
+
+  async listRequests(): Promise<HumanRequest[]> {
+    return (await this.read()).requests;
+  }
+
+  async createRequestAnalysis(analysis: RequestAnalysis): Promise<void> {
+    await this.update((data) => data.requestAnalyses.push(analysis));
+  }
+
+  async getRequestAnalysis(requestId: string): Promise<RequestAnalysis | undefined> {
+    return (await this.read()).requestAnalyses.find((analysis) => analysis.requestId === requestId);
   }
 
   async createIntent(intent: AgentIntent): Promise<void> {
@@ -198,7 +235,17 @@ export class JsonStore {
 }
 
 function emptyStoredData(): StoredData {
-  return { runs: [], events: [], permissions: {}, intents: [], findings: [], reviews: [], resolutions: [] };
+  return {
+    runs: [],
+    events: [],
+    permissions: {},
+    requests: [],
+    requestAnalyses: [],
+    intents: [],
+    findings: [],
+    reviews: [],
+    resolutions: []
+  };
 }
 
 function normalizeStoredData(data: Partial<StoredData>): StoredData {
@@ -206,6 +253,8 @@ function normalizeStoredData(data: Partial<StoredData>): StoredData {
     runs: data.runs ?? [],
     events: data.events ?? [],
     permissions: data.permissions ?? {},
+    requests: data.requests ?? [],
+    requestAnalyses: data.requestAnalyses ?? [],
     intents: data.intents ?? [],
     findings: data.findings ?? [],
     reviews: (data.reviews ?? []).map((review) => ({ ...review, findingIds: review.findingIds ?? [] })),

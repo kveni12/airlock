@@ -77,6 +77,7 @@ export class RuntimeManager {
       expectedFiles: request.expectedFiles ?? [],
       cleanupWorkspace: request.cleanupWorkspace ?? !(request.intentId || request.intent || request.purpose === "resolver"),
       intentId: request.intentId,
+      requestId: request.requestId,
       purpose: request.purpose ?? "builder",
       parentRunId: request.parentRunId
     };

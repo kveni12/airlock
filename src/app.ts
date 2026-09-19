@@ -6,6 +6,7 @@ import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
 import { BehaviorAnalysisService } from "./analysis/behaviorAnalyzer.js";
 import { ReviewService } from "./review/reviewService.js";
@@ -16,6 +17,7 @@ export interface AppContext {
   store: JsonStore;
   events: EventCollector;
   runtime: RuntimeManager;
+  requests: RequestService;
   intents: IntentService;
   findings: FindingService;
   analysis: BehaviorAnalysisService;
@@ -36,6 +38,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   const events = context?.events ?? new EventCollector(store, policy);
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
+  const requests = context?.requests ?? new RequestService(store);
   const intents = context?.intents ?? new IntentService(store);
   const findings = context?.findings ?? new FindingService(store, events);
   const analysis = context?.analysis ?? new BehaviorAnalysisService(store, findings);
@@ -84,7 +87,13 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
         if (!intent) throw new Error(`Intent not found: ${body.intentId}`);
         body.expectedFiles ??= intent.expectedFiles;
       }
+      if (body.requestId) {
+        const humanRequest = await requests.get(body.requestId);
+        if (!humanRequest) throw new Error(`Request not found: ${body.requestId}`);
+        if (humanRequest.runId) throw new Error(`Request ${body.requestId} is already attached to run ${humanRequest.runId}`);
+      }
       const run = await runtime.createRun(body);
+      if (body.requestId) await requests.attachToRun(body.requestId, run.id);
       if (body.intentId) await intents.attachToRun(body.intentId, run.id, run.taskId);
       return reply.code(202).send({
         runId: run.id,
@@ -138,6 +147,32 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       files: run.gitSummary?.files ?? [],
       diff: run.gitSummary?.diff ?? null
     };
+  });
+
+  app.post("/api/requests", async (request, reply) => {
+    try {
+      const created = await requests.create(validateRequestDraft(request.body));
+      return reply.code(201).send(created);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/requests/:id", async (request, reply) => {
+    const humanRequest = await requests.get((request.params as { id: string }).id);
+    return humanRequest ?? reply.code(404).send({ error: "Request not found" });
+  });
+
+  app.get("/api/requests/:id/analysis", async (request, reply) => {
+    const analysis = await requests.getAnalysis((request.params as { id: string }).id);
+    return analysis ?? reply.code(404).send({ error: "Request analysis not found" });
+  });
+
+  app.get("/api/runs/:id/request", async (request, reply) => {
+    const run = await store.getRun((request.params as { id: string }).id);
+    if (!run) return reply.code(404).send({ error: "Run not found" });
+    const humanRequest = run.requestId ? await requests.get(run.requestId) : await store.getRequestForRun(run.id);
+    return humanRequest ?? reply.code(404).send({ error: "Request not found" });
   });
 
   app.post("/api/intents", async (request, reply) => {

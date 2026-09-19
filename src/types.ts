@@ -76,6 +76,7 @@ export interface CreateRunRequest {
   runtime?: RuntimeConfig;
   intent?: AgentIntentDraft;
   intentId?: string;
+  requestId?: string;
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
 }
@@ -196,6 +197,7 @@ export interface RunRecord {
   cleanupWorkspace: boolean;
   gitSummary?: GitSummary;
   intentId?: string;
+  requestId?: string;
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
 }
@@ -296,10 +298,65 @@ export interface BehaviorSummary {
   tests: Array<{ command: string; passed?: boolean; eventIds: string[] }>;
 }
 
+export interface HumanRequest {
+  id: string;
+  taskId: string;
+  runId?: string;
+  rawPrompt: string;
+  explicitConstraints?: string[];
+  requestedObjectives?: string[];
+  context?: {
+    attachments?: string[];
+    metadata?: Record<string, unknown>;
+  };
+  createdAt: string;
+}
+
+export type RequestProvenance = "explicit" | "inferred";
+
+export type RequestResourceCategory =
+  | "database"
+  | "infrastructure"
+  | "dependencies"
+  | "network"
+  | "secrets"
+  | "tests"
+  | "configuration"
+  | "other";
+
+export interface RequestStatement {
+  text: string;
+  provenance: RequestProvenance;
+  source: "prompt" | "caller" | "analyzer";
+  excerpt?: string;
+}
+
+export interface RequestResource {
+  resource: string;
+  category: RequestResourceCategory;
+  provenance: RequestProvenance;
+  excerpt: string;
+}
+
+export interface RequestAnalysis {
+  id: string;
+  requestId: string;
+  objectives: RequestStatement[];
+  explicitConstraints: RequestStatement[];
+  inferredExpectations: RequestStatement[];
+  explicitlyRequestedResources: RequestResource[];
+  explicitlyForbiddenResources: RequestResource[];
+  ambiguities: string[];
+  analyzer: "deterministic";
+  createdAt: string;
+}
+
 export interface StoredData {
   runs: RunRecord[];
   events: AgentEvent[];
   permissions: Record<string, PermissionSnapshot>;
+  requests: HumanRequest[];
+  requestAnalyses: RequestAnalysis[];
   intents: AgentIntent[];
   findings: Finding[];
   reviews: Review[];
