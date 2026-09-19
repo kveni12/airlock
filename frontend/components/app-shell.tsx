@@ -3,13 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bot, GitBranch, LayoutDashboard, LogOut, MessageSquarePlus, ScanSearch } from "lucide-react";
+import { Activity, Bot, FolderGit2, GitBranch, LayoutDashboard, LogOut, MessageSquarePlus, ScanSearch } from "lucide-react";
 import { AuthGate, useAuth } from "./auth-gate";
 import { RuntimeIndicator } from "./runtime-indicator";
 import { API_BASE_URL } from "@/lib/api";
 
 const navigation = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
+  { href: "/projects", label: "Projects", icon: FolderGit2 },
   { href: "/runs", label: "Runs", icon: GitBranch },
   { href: "/requests", label: "New request", icon: MessageSquarePlus },
   { href: "/agents", label: "Agents", icon: Bot },

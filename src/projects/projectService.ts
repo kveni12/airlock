@@ -36,7 +36,10 @@ export class ProjectService {
   async update(id: string, input: unknown): Promise<Project | undefined> {
     const existing = await this.store.getProject(id);
     if (!existing) return undefined;
-    return this.store.updateProject(id, { ...validateProjectInput({ ...existing, ...(isRecord(input) ? input : {}) }), updatedAt: new Date().toISOString() });
+    const next = validateProjectInput(input);
+    const replaced: Project = { id: existing.id, createdAt: existing.createdAt, ...(existing.lastOpenedAt ? { lastOpenedAt: existing.lastOpenedAt } : {}), ...next, updatedAt: new Date().toISOString() };
+    await this.store.replaceProject(replaced);
+    return replaced;
   }
 
   /** Marks the project as opened so the list surfaces recent projects first. */

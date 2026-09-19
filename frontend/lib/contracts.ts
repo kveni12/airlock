@@ -476,6 +476,7 @@ export interface GenerateIntentBody {
   taskId: string;
   agentId: string;
   requestId?: string;
+  projectId?: string;
   repo?: { path: string; branch?: string };
   agent?: AgentProfileConfig;
   command?: string[];

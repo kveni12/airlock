@@ -639,6 +639,7 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
     cleanupWorkspace: true,
     runtime: body.runtime as CreateRunRequest["runtime"],
     requestId,
+    projectId: typeof body.projectId === "string" ? body.projectId : undefined,
     purpose: "planner"
   };
 }

@@ -182,6 +182,12 @@ export class JsonStore {
     return updated;
   }
 
+  async replaceProject(project: Project): Promise<void> {
+    await this.update((data) => {
+      data.projects = (data.projects ?? []).map((item) => (item.id === project.id ? project : item));
+    });
+  }
+
   async deleteProject(id: string): Promise<boolean> {
     let removed = false;
     await this.update((data) => {

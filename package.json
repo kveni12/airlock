@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:all": "node scripts/dev-all.mjs",
+    "dev:public": "node scripts/dev-public.mjs",
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
