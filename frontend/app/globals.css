@@ -25,6 +25,8 @@ a { color: inherit; text-decoration: none; }
 .status-good { border-color: #9bd7b5; background: #effaf3; color: #14623f; }
 .status-warn { border-color: #eac27f; background: #fff8e8; color: #815017; }
 .status-info { border-color: #a9cde1; background: #eff8fc; color: #265d78; }
+.status-bad { border-color: #e3a59b; background: #fff1ee; color: #8c2f26; }
+.status-muted { border-color: #d6ddd2; background: #f1f4ee; color: #657068; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .skeleton { animation: pulse 1.3s ease-in-out infinite; background: #e2e7df; border-radius: 8px; }
 @keyframes pulse { 50% { opacity: .52; } }
