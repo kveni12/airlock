@@ -1,7 +1,7 @@
 import { cp, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { CreateRunRequest, GitSummary, PermissionSnapshot, RunRecord, RunStatus } from "../types.js";
+import type { CreateRunRequest, GitSummary, PermissionSnapshot, RunRecord, RunStatus, RuntimeProviderKind } from "../types.js";
 import { AGENT_PROFILES, resolveAgent } from "../agents/agentAdapter.js";
 import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
@@ -19,10 +19,11 @@ import {
 import { createId } from "../utils/id.js";
 import { DockerProvider } from "./dockerProvider.js";
 import { LimaProvider } from "./limaProvider.js";
+import { ProcessProvider } from "./processProvider.js";
 import type { SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 
 export interface RuntimeManagerOptions {
-  defaultProvider?: "lima" | "docker";
+  defaultProvider?: RuntimeProviderKind;
   image?: string;
   baseVm?: string;
   workspaceRoot?: string;
@@ -32,7 +33,7 @@ export interface RuntimeManagerOptions {
 }
 
 export class RuntimeManager {
-  private readonly providers: Record<"lima" | "docker", SandboxProvider>;
+  private readonly providers: Record<RuntimeProviderKind, SandboxProvider>;
   private readonly active = new Map<string, { provider?: SandboxProvider; handle?: SandboxHandle; stopping: boolean }>();
 
   constructor(
@@ -42,7 +43,8 @@ export class RuntimeManager {
   ) {
     this.providers = {
       lima: new LimaProvider({ baseVm: options.baseVm, pidsLimit: options.pidsLimit }),
-      docker: new DockerProvider(options)
+      docker: new DockerProvider(options),
+      process: new ProcessProvider()
     };
   }
 
@@ -466,8 +468,9 @@ function validateCreateRun(request: CreateRunRequest): void {
   }
 }
 
-function defaultProvider(): "lima" | "docker" {
-  return process.env.AGENTGUARD_RUNTIME_PROVIDER === "docker" ? "docker" : "lima";
+function defaultProvider(): RuntimeProviderKind {
+  const configured = process.env.AGENTGUARD_RUNTIME_PROVIDER;
+  return configured === "docker" || configured === "process" ? configured : "lima";
 }
 
 function resolveSecretEnvironment(permissions: PermissionSnapshot): Record<string, string> {

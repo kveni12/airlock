@@ -1,4 +1,4 @@
-import type { RunRecord } from "../types.js";
+import type { RunRecord, RuntimeProviderKind } from "../types.js";
 
 export interface SandboxCreateOptions {
   run: RunRecord;
@@ -19,7 +19,7 @@ export interface SandboxHandle {
 }
 
 export interface SandboxProvider {
-  readonly kind: "lima" | "docker";
+  readonly kind: RuntimeProviderKind;
   readonly proxyHostname: string;
   create(options: SandboxCreateOptions): Promise<SandboxHandle>;
   start(handle: SandboxHandle): Promise<void>;

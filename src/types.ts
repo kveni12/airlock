@@ -159,8 +159,11 @@ export interface AgentProfile {
   executionMode?: "sandbox_cli" | "container_cli" | "bridge";
 }
 
+export type RuntimeProviderKind = "lima" | "docker" | "process";
+
 export interface RuntimeConfig {
-  provider?: "lima" | "docker";
+  /** `process` runs the agent unsandboxed as a local child process (demos/CI only; no isolation). */
+  provider?: RuntimeProviderKind;
   /** Reusable Lima VM that is cloned for a run. */
   baseVm?: string;
   /** Docker image used only when provider is `docker`. */
@@ -204,7 +207,7 @@ export interface RunRecord {
   containerName?: string;
   sandboxId?: string | null;
   sandboxName?: string;
-  runtimeProvider: "lima" | "docker";
+  runtimeProvider: RuntimeProviderKind;
   status: RunStatus;
   createdAt: string;
   startedAt?: string;
