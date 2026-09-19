@@ -83,6 +83,23 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.get("/api/agent-profiles", async () => ({ profiles: await runtime.getAgentProfiles() }));
 
+  app.get("/api/runtime/status", async () => runtime.setup.status());
+
+  app.post("/api/runtime/setup", async (request, reply) => {
+    const body = request.body as { provider?: string; agent?: string } | undefined;
+    if (body?.provider === "docker") return reply.code(202).send(runtime.setup.startSetup({ provider: "docker" }));
+    if (body?.provider === "lima") return reply.code(202).send(runtime.setup.startSetup({ provider: "lima", agent: body.agent }));
+    return reply.code(400).send({ error: "provider must be 'docker' or 'lima'" });
+  });
+
+  app.get("/api/runtime/setup", async () => ({ jobs: runtime.setup.listJobs() }));
+
+  app.get("/api/runtime/setup/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const job = runtime.setup.getJob(id);
+    return job ?? reply.code(404).send({ error: `Setup job ${id} not found` });
+  });
+
   app.post("/api/runs", async (request, reply) => {
     try {
       const body = { ...(request.body as CreateRunRequest) };

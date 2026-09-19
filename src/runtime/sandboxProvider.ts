@@ -6,6 +6,8 @@ export interface SandboxCreateOptions {
   proxyUrl?: string;
   environment: Record<string, string>;
   onOutput?: (output: SandboxOutput) => void;
+  /** Human-readable progress while the sandbox is being prepared (image build, VM clone). */
+  onStatus?: (message: string) => void;
 }
 
 export interface SandboxOutput {
