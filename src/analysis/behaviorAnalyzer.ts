@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentIntent, BehaviorSummary, RunRecord } from "../types.js";
+import type { AgentEvent, AgentIntent, BehaviorSummary, RequestAnalysis, RunRecord } from "../types.js";
 import { matchesAny } from "../policy/policyEngine.js";
 import { normalizeDependency, normalizeExpectedFile, normalizeHostname, normalizeName } from "../intent/intentService.js";
 import type { FindingDraft } from "../findings/findingService.js";
@@ -10,6 +10,8 @@ export interface BehaviorAnalysis {
   summary: BehaviorSummary;
   findings: FindingDraft[];
 }
+
+const SENSITIVE_PATH = /(^|\/)(infra|terraform|k8s|helm|deploy(ment)?s?|migrations?|db|database|secrets?)(\/|$)|\.(tf|sql|pem|key)$|\.env(\.|$)|dockerfile|docker-compose|\.github\/workflows/i;
 
 export class BehaviorAnalyzer {
   analyze(run: RunRecord, intent: AgentIntent, events: AgentEvent[]): BehaviorAnalysis {
@@ -24,7 +26,7 @@ export class BehaviorAnalyzer {
           runId: run.id,
           source: "intent_comparison",
           type: "spec_drift",
-          severity: "high",
+          severity: SENSITIVE_PATH.test(resource) ? "high" : "medium",
           title: "File changed outside declared intent",
           description: `The builder changed '${resource}', which was not included in the declared expected files.`,
           file: resource,
@@ -151,7 +153,7 @@ export class BehaviorAnalyzer {
 }
 
 export interface RunBehaviorAnalyzer {
-  analyze(run: RunRecord, intent: AgentIntent, events: AgentEvent[]): BehaviorAnalysis;
+  analyze(run: RunRecord, intent: AgentIntent, events: AgentEvent[], requestAnalysis?: RequestAnalysis): BehaviorAnalysis;
 }
 
 export class BehaviorAnalysisService {
@@ -174,7 +176,9 @@ export class BehaviorAnalysisService {
     ]);
     if (!intent) throw new Error(`Run ${runId} has no attached intent`);
     if (!run.gitSummary) throw new Error(`Run ${runId} has no final Git summary`);
-    const analysis = this.analyzer.analyze(run, intent, events);
+    const requestId = run.requestId ?? intent.requestId;
+    const requestAnalysis = requestId ? await this.store.getRequestAnalysis(requestId) : undefined;
+    const analysis = this.analyzer.analyze(run, intent, events, requestAnalysis);
     for (const draft of analysis.findings) await this.findings.create(draft);
     return analysis;
   }
@@ -257,21 +261,43 @@ function groupMcp(events: AgentEvent[]): BehaviorSummary["mcpTools"] {
   return [...grouped.values()];
 }
 
+const SHELL_TOOL = /^(bash|shell|sh|exec|run_command|command|terminal|run_terminal_cmd|execute)/i;
+const TEST_COMMAND = /(^|\s)(npm test|pnpm test|yarn test|pytest|cargo test|go test)(\s|$)/i;
+
+/** One entry per executed command: a start/tool_call event opens it, the matching exit/tool_result closes it with an exit code. */
 function groupCommands(events: AgentEvent[]): BehaviorSummary["commands"] {
-  return events
-    .filter((event) => event.category === "process" && ["start", "command_start"].includes(event.action) && event.resource)
-    .map((event) => ({ resource: event.resource as string, eventIds: [event.id] }));
+  const commands: BehaviorSummary["commands"] = [];
+  const open = new Map<string, BehaviorSummary["commands"][number][]>();
+  for (const event of events) {
+    const command = commandText(event);
+    if (!command) continue;
+    const starts = event.action === "start" || event.action === "command_start" || event.action === "tool_call";
+    if (event.action === "start" && event.category === "process") {
+      commands.push({ resource: command, eventIds: [event.id] });
+      continue;
+    }
+    if (starts) {
+      const entry = { resource: command, eventIds: [event.id] };
+      commands.push(entry);
+      open.set(command, [...(open.get(command) ?? []), entry]);
+      continue;
+    }
+    const exitCode = typeof event.metadata?.exitCode === "number" ? event.metadata.exitCode : undefined;
+    const pending = open.get(command)?.shift();
+    if (pending) {
+      pending.eventIds.push(event.id);
+      pending.exitCode = exitCode;
+    } else {
+      commands.push({ resource: command, eventIds: [event.id], exitCode });
+    }
+  }
+  return commands;
 }
 
 function groupTests(events: AgentEvent[]): BehaviorSummary["tests"] {
-  const tests: BehaviorSummary["tests"] = [];
-  for (const event of events) {
-    const command = commandText(event);
-    if (!command || !/(^|\s)(npm test|pnpm test|yarn test|pytest|cargo test|go test)(\s|$)/i.test(command)) continue;
-    const exitCode = typeof event.metadata?.exitCode === "number" ? event.metadata.exitCode : undefined;
-    tests.push({ command, passed: exitCode === undefined ? undefined : exitCode === 0, eventIds: [event.id] });
-  }
-  return tests;
+  return groupCommands(events)
+    .filter((command) => TEST_COMMAND.test(command.resource))
+    .map((command) => ({ command: command.resource, passed: command.exitCode === undefined ? undefined : command.exitCode === 0, eventIds: command.eventIds }));
 }
 
 function commandText(event: AgentEvent): string | undefined {
@@ -281,6 +307,7 @@ function commandText(event: AgentEvent): string | undefined {
     return event.resource;
   }
   if (event.category === "agent" && ["tool_call", "tool_result"].includes(event.action)) {
+    if (event.resource && !SHELL_TOOL.test(event.resource)) return undefined;
     return typeof event.metadata?.command === "string" ? event.metadata.command : undefined;
   }
   return undefined;

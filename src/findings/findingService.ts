@@ -1,4 +1,4 @@
-import type { AgentEvent, EventSeverity, Finding, FindingSource, FindingStatus, FindingType } from "../types.js";
+import type { AgentEvent, EventSeverity, Finding, FindingClassification, FindingSource, FindingStatus, FindingType } from "../types.js";
 import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { createId } from "../utils/id.js";
@@ -12,6 +12,13 @@ export interface FindingFilters {
 }
 
 export type FindingDraft = Omit<Finding, "id" | "createdAt" | "status"> & { status?: FindingStatus };
+
+export function classifyFinding(draft: Pick<Finding, "source" | "type">): FindingClassification | undefined {
+  if (draft.type === "constraint_violation" || draft.source === "request_intent_comparison") return "request_drift";
+  if (draft.source === "policy") return "permission_violation";
+  if (draft.source === "intent_comparison") return "plan_drift";
+  return undefined;
+}
 
 export class FindingService {
   private queue: Promise<void> = Promise.resolve();
@@ -35,6 +42,7 @@ export class FindingService {
     if (duplicate) return duplicate;
     const finding: Finding = {
       ...draft,
+      classification: draft.classification ?? classifyFinding(draft),
       id: createId("finding"),
       status: draft.status ?? "open",
       createdAt: new Date().toISOString()

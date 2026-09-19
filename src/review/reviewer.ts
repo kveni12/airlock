@@ -42,7 +42,7 @@ export interface Reviewer {
 }
 
 export class DeterministicReviewer implements Reviewer {
-  readonly id = "agentguard-deterministic-reviewer";
+  readonly id = "periscope-deterministic-reviewer";
 
   async review(input: ReviewerInput): Promise<ReviewerOutput> {
     const actionable = input.deterministicFindings.filter(
