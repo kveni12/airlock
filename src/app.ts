@@ -181,6 +181,27 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     }
   });
 
+  app.post("/api/requests/preview", async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { rawPrompt?: unknown; rules?: unknown };
+      return await requests.preview(typeof body.rawPrompt === "string" ? body.rawPrompt : "", body.rules);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/request-rules", async () => requests.getRules());
+
+  app.put("/api/request-rules", async (request, reply) => {
+    try {
+      return await requests.updateRules(request.body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/request-rules/reset", async () => requests.resetRules());
+
   app.get("/api/requests/:id", async (request, reply) => {
     const humanRequest = await requests.get((request.params as { id: string }).id);
     return humanRequest ?? reply.code(404).send({ error: "Request not found" });

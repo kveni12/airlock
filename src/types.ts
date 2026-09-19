@@ -1,3 +1,7 @@
+import type { RequestAnalyzerRules } from "./request/requestRules.js";
+
+export type { RequestAnalyzerRules };
+
 export type RunStatus =
   | "pending"
   | "starting"
@@ -344,6 +348,8 @@ export interface HumanRequest {
   rawPrompt: string;
   explicitConstraints?: string[];
   requestedObjectives?: string[];
+  /** `manual`: the human reviewed/edited the extracted lists, so the prompt is not re-parsed for objectives/constraints. */
+  analysisMode?: "rules" | "manual";
   context?: {
     attachments?: string[];
     metadata?: Record<string, unknown>;
@@ -387,6 +393,8 @@ export interface RequestAnalysis {
   explicitlyForbiddenResources: RequestResource[];
   ambiguities: string[];
   analyzer: "deterministic";
+  /** Revision of the editable rule set that produced this analysis (0 = built-in defaults). */
+  rulesRevision?: number;
   createdAt: string;
 }
 
@@ -489,6 +497,7 @@ export interface StoredData {
   findings: Finding[];
   reviews: Review[];
   resolutions: ResolutionAttempt[];
+  requestRules?: RequestAnalyzerRules;
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &

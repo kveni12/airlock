@@ -10,6 +10,7 @@ import type {
   HumanRequest,
   PermissionSnapshot,
   RequestAnalysis,
+  RequestAnalyzerRules,
   ResolutionAttempt,
   Review,
   RunRecord,
@@ -104,6 +105,16 @@ export class JsonStore {
 
   async getRequestAnalysis(requestId: string): Promise<RequestAnalysis | undefined> {
     return (await this.read()).requestAnalyses.find((analysis) => analysis.requestId === requestId);
+  }
+
+  async getRequestRules(): Promise<RequestAnalyzerRules | undefined> {
+    return (await this.read()).requestRules;
+  }
+
+  async setRequestRules(rules: RequestAnalyzerRules): Promise<void> {
+    await this.update((data) => {
+      data.requestRules = rules;
+    });
   }
 
   async createIntent(intent: AgentIntent): Promise<void> {
@@ -291,7 +302,8 @@ function normalizeStoredData(data: Partial<StoredData>): StoredData {
     intents: (data.intents ?? []).map(normalizeStoredIntent),
     findings: data.findings ?? [],
     reviews: (data.reviews ?? []).map((review) => ({ ...review, findingIds: review.findingIds ?? [] })),
-    resolutions: data.resolutions ?? []
+    resolutions: data.resolutions ?? [],
+    requestRules: data.requestRules
   };
 }
 
