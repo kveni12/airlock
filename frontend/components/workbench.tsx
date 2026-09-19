@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, FileCode2, FolderOpen, LayoutList, MessageSquareText, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { approveReview, createReview, getEvents, getFiles, getRunDetail, getTimeline, stopRun } from "@/lib/api";
 import type { AgentEvent, AgentIntent, AlignmentStatus, TimelineEntry } from "@/lib/contracts";
@@ -17,14 +17,10 @@ const ACTIVE = ["pending", "starting", "running", "stopping"];
 type FileMark = "declared" | "undeclared" | "expected_untouched";
 
 export function Workbench({ runId }: { runId: string }) {
-  const loadDetail = useCallback((signal: AbortSignal) => getRunDetail(runId, signal), [runId]);
-  const loadFiles = useCallback((signal: AbortSignal) => getFiles(runId, signal), [runId]);
-  const loadTimeline = useCallback((signal: AbortSignal) => getTimeline(runId, signal), [runId]);
-  const loadEvents = useCallback((signal: AbortSignal) => getEvents(runId, signal), [runId]);
-  const detail = useResource(loadDetail, 6000);
-  const files = useResource(loadFiles, 8000);
-  const timeline = useResource(loadTimeline, 6000);
-  const events = useResource(loadEvents, 15000);
+  const detail = useResource((signal) => getRunDetail(runId, signal), 6000, [runId]);
+  const files = useResource((signal) => getFiles(runId, signal), 8000, [runId]);
+  const timeline = useResource((signal) => getTimeline(runId, signal), 6000, [runId]);
+  const events = useResource((signal) => getEvents(runId, signal), 15000, [runId]);
   const [live, setLive] = useState<AgentEvent[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [center, setCenter] = useState<"transcript" | "timeline">("transcript");

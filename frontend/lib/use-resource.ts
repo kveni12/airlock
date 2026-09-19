@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** Polls a loader on an interval; `loader` must be stable (wrap in useCallback) or keyed via deps. */
-export function useResource<T>(loader: (signal: AbortSignal) => Promise<T>, refreshMs = 4000) {
+/**
+ * Polls a loader on an interval. The loader is read through a ref, so an inline arrow is fine:
+ * pass `deps` (like a useEffect dependency list) for the values it closes over, e.g. `[runId]`.
+ */
+export function useResource<T>(loader: (signal: AbortSignal) => Promise<T>, refreshMs = 4000, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +36,8 @@ export function useResource<T>(loader: (signal: AbortSignal) => Promise<T>, refr
       controller.abort();
       if (timer) window.clearInterval(timer);
     };
-  }, [refresh, refreshMs, loader]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh, refreshMs, ...deps]);
 
   return { data, loading, error, refresh: () => refresh() };
 }

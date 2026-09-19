@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowDown, Check, Plus, Settings2, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
 import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
@@ -53,7 +53,8 @@ export function NewRequestFlow() {
   const [agentBinary, setAgentBinary] = useState("");
   const [scope, setScope] = useState<AccessScope>(DEFAULT_SCOPE);
   const [accessGaps, setAccessGaps] = useState<AccessGapReport | null>(null);
-  const profiles = useResource<AgentProfile[]>((signal) => getAgentProfiles(signal), 60_000);
+  const loadProfiles = useCallback((signal: AbortSignal) => getAgentProfiles(signal), []);
+  const profiles = useResource<AgentProfile[]>(loadProfiles, 60_000);
   const selectedProfile = profiles.data?.find((p) => p.kind === agentChoice);
   const usingRealAgent = agentChoice !== "script";
   const timeoutMs = usingRealAgent ? REAL_AGENT_TIMEOUT_MS : SCRIPT_TIMEOUT_MS;

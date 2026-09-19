@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Check } from "lucide-react";
 import { getRequestRules, previewRequest, resetRequestRules, updateRequestRules } from "@/lib/api";
 import type { LexiconCategory, RequestAnalysis, RequestAnalyzerRules } from "@/lib/contracts";
@@ -56,7 +56,8 @@ function badRegex(source: string): string | null {
 }
 
 export function RequestRulesEditor() {
-  const rules = useResource<RequestAnalyzerRules>((signal) => getRequestRules(signal), 0);
+  const loadRules = useCallback((signal: AbortSignal) => getRequestRules(signal), []);
+  const rules = useResource<RequestAnalyzerRules>(loadRules, 0);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState<RequestAnalyzerRules | null>(null);
   const [sample, setSample] = useState(SAMPLE);
