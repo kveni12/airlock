@@ -20,7 +20,9 @@ npm install
 npm run dev:all
 ```
 
-Then open `http://localhost:3001`. `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
+Then open `http://localhost:3001`. The first time you do, the UI asks you to create an administrator account and paste the one-time setup token the backend printed to its log at startup (`Periscope has no operator account yet…`). Every later visit asks you to sign in; requests, intent decisions, dismissals and review approvals are recorded against that account rather than a caller-supplied name.
+
+`dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
 
 ### Run a real agent on your own repository
 
@@ -38,6 +40,26 @@ Secrets are listed by env var name (e.g. `ANTHROPIC_API_KEY`) and resolved from 
 ```bash
 npm install
 ```
+
+## Accounts and Sessions
+
+Every route except `/health` and `/api/auth/*` requires a session cookie.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/auth/status` | Whether the instance still needs its first administrator |
+| `POST /api/auth/bootstrap` | Create the first administrator with the one-time setup token from the backend log |
+| `POST /api/auth/login` | Sign in and receive the `periscope_session` cookie |
+| `POST /api/auth/logout` | Invalidate the session |
+| `GET /api/auth/me` | The signed-in operator |
+| `GET`/`POST /api/auth/users` | List/create operators (administrators only) |
+
+Passwords are at least 12 characters and stored as salted scrypt hashes. Sessions live in backend memory, so restarting the backend signs everyone out. Configuration:
+
+- `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
+- `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
+
+Scripted clients sign in and reuse the cookie, e.g. `curl -c jar -X POST localhost:3000/api/auth/login -H 'content-type: application/json' -d '{"email":"you@example.com","password":"…"}'` then `curl -b jar localhost:3000/api/runs`.
 
 ## Set Up VM Runtime
 
@@ -529,6 +551,7 @@ Grants on single files or globs widen to the containing directory for mount purp
 - Vendor output formats can change; unknown records safely fall back to sanitized `process.output` instead of being discarded.
 - Devin runs remotely by design; Periscope can only observe actions and changes that its bridge imports into the disposable VM and event collector.
 - JSON-file persistence is intentionally simple and not designed for high-concurrency production workloads.
+- Authentication is a single-instance operator login: sessions are in-memory, there is no password reset, lockout, rate limiting or MFA, and all operators can see every run.
 
 ## Product Boundary
 

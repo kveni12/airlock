@@ -158,7 +158,22 @@ export interface HumanRequest {
   requestedObjectives?: string[];
   analysisMode?: "rules" | "manual";
   context?: { attachments?: string[]; metadata?: Record<string, unknown> };
+  createdBy?: string;
   createdAt: string;
+}
+
+export interface PublicUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "operator";
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  needsBootstrap: boolean;
 }
 
 export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";
