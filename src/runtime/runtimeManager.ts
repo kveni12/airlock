@@ -2,7 +2,7 @@ import { cp, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { CreateRunRequest, GitSummary, PermissionSnapshot, RunRecord, RunStatus } from "../types.js";
-import { resolveAgent } from "../agents/agentAdapter.js";
+import { AGENT_PROFILES, resolveAgent } from "../agents/agentAdapter.js";
 import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { FilesystemMonitor } from "../telemetry/filesystemMonitor.js";
@@ -67,7 +67,10 @@ export class RuntimeManager {
       command: agent.command,
       runtimeProvider,
       runtimeImage: runtimeProvider === "docker" ? request.runtime?.image ?? this.image : undefined,
-      runtimeBaseVm: runtimeProvider === "lima" ? request.runtime?.baseVm ?? this.options.baseVm ?? "agentguard-base" : undefined,
+      runtimeBaseVm:
+        runtimeProvider === "lima"
+          ? request.runtime?.baseVm ?? this.options.baseVm ?? agent.defaultBaseVm
+          : undefined,
       environmentKeys: Object.keys(runtimeEnvironment),
       timeoutMs: request.timeoutMs ?? 30 * 60 * 1000,
       expectedFiles: request.expectedFiles ?? [],
@@ -82,6 +85,16 @@ export class RuntimeManager {
     });
 
     return run;
+  }
+
+  async getAgentProfiles(): Promise<Array<(typeof AGENT_PROFILES)[number] & { runtimeReady: boolean }>> {
+    const lima = this.providers.lima as LimaProvider;
+    return Promise.all(
+      AGENT_PROFILES.map(async (profile) => ({
+        ...profile,
+        runtimeReady: await lima.isBaseAvailable(profile.defaultBaseVm)
+      }))
+    );
   }
 
   async stopRun(runId: string): Promise<RunRecord | undefined> {

@@ -85,7 +85,7 @@ VM clones receive CPU and memory limits, and the agent command runs with a proce
 
 ### Agent Execution
 
-AgentGuard uses an agent adapter layer before sandbox creation. The universal adapter accepts any non-interactive command array and executes it inside `/workspace`. Named adapters currently include `generic`, `custom`, `codex`, and `devin`; they resolve profile metadata into an executable command plus non-secret environment variables.
+AgentGuard uses an agent adapter layer before sandbox creation. The universal adapter accepts any non-interactive command array and executes it inside `/workspace`. Named adapters include `generic`, `custom`, `codex`, `cursor`, `claude_code`, and `devin`; they resolve profile metadata into a tested non-interactive command, an agent-specific default base VM, and non-secret environment variables.
 
 The runtime can use a per-run Lima base through `runtime.baseVm`, so teams can maintain bases containing Codex, Devin bridge tooling, or another coding-agent CLI. AgentGuard observes the command, workspace writes, git changes, network proxy events, and policy results regardless of which agent produced them.
 
@@ -327,6 +327,7 @@ Completed:
 - Restricted Lima clones to a single per-run temporary workspace mount and exposed it as `/workspace` through a guest-only symlink.
 - Added final filesystem baseline reconciliation so VM-mounted writes are recorded even when host filesystem notifications are delayed or dropped.
 - Added an agent adapter layer with generic, custom, Codex, and Devin profiles.
+- Added first-class Claude Code and Cursor profiles, agent-specific VM defaults, reproducible base builders, and executable preflight checks.
 - Added per-run runtime selection for agent-specific Lima bases or Docker images.
 - Added non-secret runtime/agent environment injection while persisting only environment variable names.
 - Added Docker SDK-based runtime orchestration using `dockerode`.
@@ -345,9 +346,11 @@ Completed:
 - Added a deterministic demo fixture and `agentguard-demo-agent` script.
 - Added `devin-agentguard-bridge` to both base runtimes for cloud-agent bridge workflows.
 - Added README instructions for VM setup, optional Docker image build, backend start, demo run, SSE, and tests.
-- Added tests for event collection, redaction, policy, and an opt-in Docker runtime integration path.
+- Added tests for event collection, redaction, policy, an opt-in Docker runtime integration path, and an opt-in four-agent Lima smoke suite.
 - Verified Docker locally by starting Docker Desktop, building `agentguard-runtime:latest`, running the opt-in Docker integration test, and creating a real API demo run that completed in a container.
 - Installed Lima 2.2.0 locally, provisioned `agentguard-base`, and passed the real disposable-VM integration test with file and Git telemetry plus VM cleanup.
+- Provisioned and verified reusable agent bases for Codex CLI 0.155.1, Claude Code 2.1.278, and Cursor Agent 2026.09.18-9a7762b, plus the Devin bridge base.
+- Passed a real cross-agent smoke suite that launched disposable VMs through `RuntimeManager`, selected each profile's base automatically, verified the installed executable, recorded successful completion, and removed each clone.
 
 Changed from original intent:
 
@@ -361,8 +364,9 @@ Mocked, incomplete, or limited:
 
 - The Docker integration test is gated behind `RUN_DOCKER_TESTS=1` because it requires Docker Desktop/Engine and the runtime image.
 - The VM integration test is gated behind `RUN_VM_TESTS=1` (or `npm run vm:test`) because it creates a real disposable VM.
-- Codex/Devin adapters resolve commands and runtime metadata, but proprietary CLIs must already exist in the selected Lima base VM.
+- Agent setup scripts install Codex, Claude Code, and Cursor CLIs into reusable bases. Real authenticated coding tasks were not run because vendor API credentials were not provided.
 - Cloud-only Devin execution is observable only through a bridge that exports patches/logs/events back into the AgentGuard VM/workspace.
+- Proprietary internal tool-call semantics are not decoded automatically; all adapters still receive the common filesystem, top-level process, proxy-aware network, Git, and policy telemetry.
 - Filesystem reads are not observed.
 - Process telemetry captures only the configured top-level command, not every subprocess inside the VM.
 - Network visibility depends on `HTTP_PROXY`/`HTTPS_PROXY` being honored by the agent process.
@@ -382,7 +386,8 @@ Known security limitations:
 Next highest-priority backend tasks:
 
 - Add automated CI coverage for both Lima and Docker integration paths on capable runners.
-- Build and version maintained base VMs for Codex, Devin bridge mode, and other common coding agents.
+- Build, version, and publish maintained base VMs for the supported coding agents.
+- Add credential-backed end-to-end tests in a secure CI environment for Codex, Claude Code, Cursor Agent, and Devin.
 - Add startup health checks for Lima availability, base VM state, disk capacity, and virtualization support.
 - Add child-process telemetry through guest-side instrumentation.
 - Add VM firewall-based egress enforcement and stronger path enforcement within `/workspace`.

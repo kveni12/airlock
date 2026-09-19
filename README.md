@@ -91,6 +91,24 @@ curl -sS http://localhost:3000/api/runs/RUN_ID
 
 AgentGuard is agent-agnostic at the runtime boundary. Any AI coding agent can run if it can be launched as a non-interactive command inside the selected base VM.
 
+| Agent | Adapter kind | Default base VM | Authentication identifier |
+| --- | --- | --- | --- |
+| OpenAI Codex | `codex` | `agentguard-codex-base` | `OPENAI_API_KEY` |
+| Claude Code | `claude_code` | `agentguard-claude-code-base` | `ANTHROPIC_API_KEY` |
+| Cursor Agent | `cursor` | `agentguard-cursor-base` | `CURSOR_API_KEY` |
+| Devin | `devin` | `agentguard-devin-base` | `DEVIN_API_KEY`, `DEVIN_ORG_ID` |
+
+Build an agent-specific reusable base once:
+
+```bash
+npm run vm:setup-agent -- codex
+npm run vm:setup-agent -- claude-code
+npm run vm:setup-agent -- cursor
+npm run vm:setup-agent -- devin
+```
+
+The first three commands install and verify their official CLI. The Devin base contains the AgentGuard bridge because Devin normally executes in its cloud environment. Every actual run still receives a fresh disposable clone.
+
 There are two supported ways to launch agents:
 
 1. Universal command mode:
@@ -115,7 +133,7 @@ There are two supported ways to launch agents:
 }
 ```
 
-Named adapters resolve to commands, but they do not install proprietary CLIs. Clone and provision a separate Lima base VM when an agent needs custom tooling, then select it with `runtime.baseVm`:
+Named adapters automatically select their agent-specific base. Override it only when you maintain a custom build:
 
 ```json
 {
@@ -132,7 +150,7 @@ Declared secret names are resolved from the backend process environment at run c
 
 ### Codex
 
-Codex can be run through command mode or the `codex` adapter when the selected base VM contains a compatible `codex` CLI:
+Codex uses stable non-interactive `codex exec`. AgentGuard enables ephemeral JSON output and bypasses Codex's nested approval sandbox because execution is already contained by the disposable VM:
 
 ```bash
 curl -sS -X POST http://localhost:3000/api/runs \
@@ -141,16 +159,15 @@ curl -sS -X POST http://localhost:3000/api/runs \
     "taskId": "task_codex_001",
     "agentId": "codex_builder_001",
     "repo": { "path": "'$PWD'/fixtures/demo-repo" },
-    "runtime": { "provider": "lima", "baseVm": "agentguard-codex-base" },
     "agent": {
       "kind": "codex",
       "prompt": "Update the greeting implementation and run tests",
-      "args": ["--approval-mode", "never"]
+      "args": ["--model", "gpt-5.5"]
     },
     "permissions": {
       "filesystem": [{ "path": "/workspace/src", "access": "read_write" }],
-      "network": [],
-      "secrets": [],
+      "network": ["api.openai.com"],
+      "secrets": ["OPENAI_API_KEY"],
       "mcpServers": [],
       "tools": ["git", "npm", "shell"]
     }
@@ -163,7 +180,44 @@ Equivalent universal mode:
 {
   "agent": {
     "kind": "custom",
-    "command": ["codex", "exec", "--approval-mode", "never", "Update the greeting implementation and run tests"]
+    "command": ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "Update the greeting implementation and run tests"]
+  }
+}
+```
+
+### Claude Code
+
+Claude Code runs with print mode, streaming JSON output, no session persistence, and unattended permissions inside the VM:
+
+```json
+{
+  "agentId": "claude_builder_001",
+  "agent": {
+    "kind": "claude_code",
+    "prompt": "Fix the failing authentication tests",
+    "args": ["--max-turns", "20"]
+  },
+  "permissions": {
+    "secrets": ["ANTHROPIC_API_KEY"],
+    "network": ["api.anthropic.com"]
+  }
+}
+```
+
+### Cursor
+
+Cursor Agent runs in non-interactive print mode with structured output:
+
+```json
+{
+  "agentId": "cursor_builder_001",
+  "agent": {
+    "kind": "cursor",
+    "prompt": "Implement the requested endpoint and run tests"
+  },
+  "permissions": {
+    "secrets": ["CURSOR_API_KEY"],
+    "network": ["cursor.sh", "cursorapi.com"]
   }
 }
 ```
@@ -182,7 +236,7 @@ Example bridge payload:
   "agentId": "devin_001",
   "runtime": {
     "provider": "lima",
-    "baseVm": "agentguard-base",
+    "baseVm": "agentguard-devin-base",
     "env": {
       "DEVIN_BRIDGE_COMMAND": "your-devin-cli-or-script --prompt \"$AGENTGUARD_PROMPT\" --apply-patch /workspace"
     }
@@ -198,6 +252,26 @@ Example bridge payload:
 The base VM includes `devin-agentguard-bridge`, which executes `DEVIN_BRIDGE_COMMAND` from `/workspace`. Do not put raw secrets in this command string; pass secret values through your deployment environment or secret manager.
 
 AgentGuard can fully observe the bridge process, workspace writes, git diff, proxy-aware network calls, and policy events. It cannot observe actions performed entirely inside Devin's remote environment unless the bridge exports those actions back as files, patches, logs, or events.
+
+### Any Other Coding Agent
+
+Use `kind: "custom"`, provide its non-interactive command, and select a base VM containing the executable. No runtime-manager code change is required:
+
+```json
+{
+  "agentId": "future_agent_001",
+  "runtime": {
+    "provider": "lima",
+    "baseVm": "agentguard-future-agent-base"
+  },
+  "agent": {
+    "kind": "custom",
+    "command": ["future-agent", "run", "--non-interactive", "Fix the tests"]
+  }
+}
+```
+
+Filesystem, process, network-proxy, Git, policy, persistence, and SSE behavior is independent of the selected agent. Agent-specific semantic tool-call events require MCP proxying or a bridge that emits those events; AgentGuard does not infer proprietary internal protocols.
 
 ## Watch Events
 
@@ -227,7 +301,7 @@ GET  /api/runs/:id/files
 GET  /api/runs/:id/stream
 ```
 
-`GET /api/agent-profiles` returns the supported adapter kinds and whether they require an explicit command, support prompts, or support bridge mode.
+`GET /api/agent-profiles` returns supported adapter kinds, default VM bases, recommended secret identifiers, execution modes, and `runtimeReady` for each local base.
 
 ## VM Architecture
 
@@ -269,6 +343,14 @@ npm run vm:setup
 npm run vm:test
 ```
 
+After building the agent-specific bases, run the cross-agent smoke suite. It launches real disposable VMs for Codex, Claude Code, Cursor Agent, and the Devin bridge, verifies each installed executable, and checks run completion and cleanup:
+
+```bash
+npm run vm:test-agents
+```
+
+This smoke suite does not submit authenticated coding tasks. End-to-end vendor API behavior requires the corresponding credentials listed in the compatibility table.
+
 The optional Docker integration test requires Docker and its runtime image:
 
 ```bash
@@ -288,6 +370,8 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 - HTTPS bodies are not decrypted or inspected.
 - The network proxy records destination host/port only.
 - Generic MCP proxying is not implemented yet.
+- Agent-independent filesystem, process, network, Git, and policy telemetry works for every adapter. Proprietary internal tool calls are not automatically decoded unless the agent emits them through an AgentGuard bridge or a future MCP proxy.
+- Devin runs remotely by design; AgentGuard can only observe actions and changes that its bridge imports into the disposable VM and event collector.
 - JSON-file persistence is intentionally simple and not designed for high-concurrency production workloads.
 
 ## Product Boundary

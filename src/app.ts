@@ -5,7 +5,6 @@ import { JsonStore } from "./store/jsonStore.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
-import { AGENT_PROFILES } from "./agents/agentAdapter.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -31,7 +30,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.get("/health", async () => ({ ok: true }));
 
-  app.get("/api/agent-profiles", async () => ({ profiles: AGENT_PROFILES }));
+  app.get("/api/agent-profiles", async () => ({ profiles: await runtime.getAgentProfiles() }));
 
   app.post("/api/runs", async (request, reply) => {
     try {

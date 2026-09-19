@@ -24,6 +24,15 @@ export class LimaProvider implements SandboxProvider {
 
   constructor(private readonly options: LimaProviderOptions = {}) {}
 
+  async isBaseAvailable(baseVm: string): Promise<boolean> {
+    try {
+      await runCommand(this.binary, ["list", baseVm, "--format", "json"]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async create(options: SandboxCreateOptions): Promise<LimaHandle> {
     const name = limaName(options.run.id);
     const baseVm = options.run.runtimeBaseVm ?? this.options.baseVm ?? "agentguard-base";
@@ -61,6 +70,19 @@ export class LimaProvider implements SandboxProvider {
       this.binary,
       ["shell", lima.name, "sudo", "ln", "-sfn", lima.workspacePath, "/workspace"],
       `Failed to prepare /workspace in Lima VM '${lima.name}'`
+    );
+    await runCommand(
+      this.binary,
+      [
+        "shell",
+        lima.name,
+        "sh",
+        "-c",
+        'command -v "$1" >/dev/null 2>&1',
+        "agentguard-preflight",
+        lima.command[0]
+      ],
+      `Agent executable '${lima.command[0]}' is not installed in Lima base '${lima.name}'. Build the matching base with npm run vm:setup-agent -- <agent>`
     );
     const envArgs = Object.entries(lima.environment).map(([key, value]) => `${key}=${value}`);
     const child = spawn(

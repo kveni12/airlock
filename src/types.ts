@@ -62,7 +62,7 @@ export interface CreateRunRequest {
   runtime?: RuntimeConfig;
 }
 
-export type AgentKind = "generic" | "codex" | "devin" | "custom";
+export type AgentKind = "generic" | "codex" | "cursor" | "claude_code" | "devin" | "custom";
 
 export interface AgentProfile {
   kind: AgentKind;
@@ -89,7 +89,7 @@ export interface AgentProfile {
   /**
    * Records whether the agent runs locally inside the container or through an explicit bridge command.
    */
-  executionMode?: "container_cli" | "bridge";
+  executionMode?: "sandbox_cli" | "container_cli" | "bridge";
 }
 
 export interface RuntimeConfig {
