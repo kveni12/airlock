@@ -13,6 +13,7 @@ import { BehaviorAnalysisService } from "./analysis/behaviorAnalyzer.js";
 import { ReviewService } from "./review/reviewService.js";
 import { ResolutionService, type ResolveFindingRequest } from "./resolution/resolutionService.js";
 import { SummaryService } from "./dashboard/summaryService.js";
+import { RunInsightService } from "./dashboard/runInsightService.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -26,6 +27,7 @@ export interface AppContext {
   reviews: ReviewService;
   resolutions: ResolutionService;
   summaries: SummaryService;
+  insights: RunInsightService;
 }
 
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
@@ -48,6 +50,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const reviews = context?.reviews ?? new ReviewService(store, events, findings, analysis);
   const resolutions = context?.resolutions ?? new ResolutionService(store, events, runtime, findings, analysis, reviews);
   const summaries = context?.summaries ?? new SummaryService(store);
+  const insights = context?.insights ?? new RunInsightService(store);
 
   events.subscribeAll((event) => {
     if (event.category !== "runtime" || event.action !== "completed") return;
@@ -185,6 +188,20 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     const analysis = await requests.getAnalysis((request.params as { id: string }).id);
     return analysis ?? reply.code(404).send({ error: "Request analysis not found" });
   });
+
+  for (const [route, load] of [
+    ["detail", (id: string) => insights.detail(id)],
+    ["alignment", (id: string) => insights.alignment(id)],
+    ["timeline", async (id: string) => ({ runId: id, entries: await insights.timeline(id) })],
+    ["result", (id: string) => insights.result(id)],
+    ["behavior", async (id: string) => (await insights.detail(id)).behaviorSummary ?? { runId: id, unavailable: "Run has no attached intent; behavior summary requires one" }]
+  ] as const) {
+    app.get(`/api/runs/:id/${route}`, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!(await store.getRun(id))) return reply.code(404).send({ error: "Run not found" });
+      return load(id);
+    });
+  }
 
   app.get("/api/runs/:id/request", async (request, reply) => {
     const run = await store.getRun((request.params as { id: string }).id);

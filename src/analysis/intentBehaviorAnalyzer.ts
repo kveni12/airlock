@@ -69,7 +69,7 @@ function undeclaredCommands(base: Base, intent: AgentIntent, summary: BehaviorSu
     findings.push({
       ...base,
       source: "intent_comparison",
-      type: "spec_drift",
+      type: "permission",
       severity: "low",
       title: "Undeclared command executed",
       description: `The agent reported running '${command.resource}', which does not match any declared expected command. Command telemetry is agent-reported, not independently observed.`,

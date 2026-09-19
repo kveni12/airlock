@@ -387,6 +387,95 @@ export interface RequestAnalysis {
   createdAt: string;
 }
 
+export interface AlignmentSegment {
+  status: AlignmentStatus;
+  findingIds: string[];
+  /** Why the segment has its status, or why it could not be evaluated. */
+  detail: string;
+}
+
+export interface AlignmentSummary {
+  runId: string;
+  requestId?: string;
+  intentId?: string;
+  requestToIntent: AlignmentSegment;
+  intentToBehavior: AlignmentSegment;
+  behaviorToResult?: AlignmentSegment;
+  counts: {
+    undeclaredFiles: number;
+    undeclaredDependencies: number;
+    undeclaredNetworkDestinations: number;
+    undeclaredTools: number;
+    missingExpectedActions: number;
+  };
+}
+
+export interface ResultSummary {
+  runId: string;
+  status: RunStatus;
+  exitCode?: number | null;
+  failureReason?: string;
+  filesChanged: string[];
+  insertions: number;
+  deletions: number;
+  dependenciesChanged: GitSummary["dependencyChanges"];
+  commits: GitSummary["commits"];
+  tests: Array<{ command: string; passed?: boolean; eventIds: string[]; verification: EvidenceVerification }>;
+  review?: {
+    reviewId: string;
+    status: Review["status"];
+    filesTotal: number;
+    filesReviewed: number;
+    filesWithFindings: number;
+    findingIds: string[];
+    approvedAt?: string;
+    approval?: Review["approval"];
+  };
+  findings: { total: number; open: number; resolved: number; dismissed: number };
+  approvalStatus: "approved" | "needs_human" | "pending" | "not_reviewed";
+}
+
+export type TimelineEntryKind =
+  | "human.request"
+  | "request.analysis"
+  | "agent.intent"
+  | "intent.analysis"
+  | "intent.approval"
+  | "runtime"
+  | "filesystem"
+  | "process"
+  | "network"
+  | "mcp"
+  | "git"
+  | "agent"
+  | "policy"
+  | "finding.created"
+  | "review"
+  | "resolution"
+  | "approval";
+
+export interface TimelineEntry {
+  id: string;
+  timestamp: string;
+  kind: TimelineEntryKind;
+  actor: "human" | "agent" | "agentguard" | "runtime" | "reviewer" | "resolver";
+  title: string;
+  detail?: string;
+  severity?: EventSeverity;
+  evidenceSource?: EvidenceSource;
+  verification?: EvidenceVerification;
+  refs: {
+    eventId?: string;
+    requestId?: string;
+    intentId?: string;
+    findingId?: string;
+    findingIds?: string[];
+    reviewId?: string;
+    resolutionId?: string;
+    runId?: string;
+  };
+}
+
 export interface StoredData {
   runs: RunRecord[];
   events: AgentEvent[];
