@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
-import type { AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity } from "./types.js";
+import type { AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
@@ -15,6 +15,7 @@ import { ReviewService } from "./review/reviewService.js";
 import { ResolutionService, type ResolveFindingRequest } from "./resolution/resolutionService.js";
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
+import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -318,6 +319,13 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
+  });
+
+  app.post("/api/intents/:id/access-check", async (request, reply) => {
+    const intent = await intents.get((request.params as { id: string }).id);
+    if (!intent) return reply.code(404).send({ error: "Intent not found" });
+    const { permissions } = (request.body ?? {}) as { permissions?: PermissionSnapshot };
+    return analyzeAccessGaps(intent, permissions ?? {});
   });
 
   app.post("/api/intents/:id/approve", async (request, reply) => {
