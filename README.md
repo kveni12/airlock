@@ -509,6 +509,11 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 | Per-folder `read` vs `read_write` | kernel-enforced: root bound `:ro`, each `read_write` folder layered as a writable bind; writes elsewhere fail with `EROFS` and are recorded as `filesystem.write_prevented` | **observed only** — Lima mounts cannot overlap, so a partial grant widens the whole workspace to writable and out-of-scope writes are flagged afterwards | observed only (flagged via git diff) |
 | Network allowlist | enforced: empty list = no internet; the container sits on an internal bridge whose only egress is the Periscope proxy, so traffic that ignores `HTTP(S)_PROXY` is dropped | proxy enforced for tools honoring `HTTP(S)_PROXY`; direct sockets are not blocked | same as lima |
 | Secrets | only granted env var names are injected | same | same — the agent gets a clean environment (`PATH`, locale/terminal vars, runtime metadata, granted secrets), not the host `process.env` |
+| Container/VM privileges | unprivileged, runs as the host user that owns the workspace copy (not root), `CapDrop: ALL`, `no-new-privileges`; remounting `/workspace` fails | Lima default (unprivileged guest user) | host user, no isolation |
+
+### Sandbox lifecycle
+
+Every run gets its own container (or VM) plus, on Docker, its own internal network; both are labelled `agentguard.run=<run id>` and removed as soon as the run ends, is stopped, or fails to start. Nothing stays running while a plan waits for approval — the planner container exits when it has declared its intent and the builder is only created after approval. If the backend itself dies mid-run, the next start calls `RuntimeManager.recover()`: it marks the stranded runs `failed`, removes any container/network/VM whose label or name maps to a run that is no longer active, and deletes the temp workspace of runs that asked for cleanup.
 
 Grants on single files or globs widen to the containing directory for mount purposes; the policy engine still evaluates the exact grant afterwards.
 
