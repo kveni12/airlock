@@ -58,6 +58,32 @@ describe("resolveAgent", () => {
     expect(agent.defaultBaseVm).toBe("agentguard-codex-base");
   });
 
+  it("resolves OpenCode to an auto-approved JSON streaming command", () => {
+    const agent = resolveAgent({
+      ...baseRequest,
+      command: undefined,
+      agent: {
+        kind: "opencode",
+        prompt: "Implement OAuth login",
+        args: ["--model", "openai/gpt-5"]
+      }
+    });
+
+    expect(agent.command).toEqual([
+      "opencode",
+      "run",
+      "--format",
+      "json",
+      "--auto",
+      "--model",
+      "openai/gpt-5",
+      "Implement OAuth login"
+    ]);
+    expect(agent.environment.AGENTGUARD_AGENT_KIND).toBe("opencode");
+    expect(agent.environment.AGENTGUARD_PROMPT).toBe("Implement OAuth login");
+    expect(agent.defaultBaseVm).toBe("agentguard-opencode-base");
+  });
+
   it("resolves Cursor to its non-interactive agent command", () => {
     const agent = resolveAgent({
       ...baseRequest,

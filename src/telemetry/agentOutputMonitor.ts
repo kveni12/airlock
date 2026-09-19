@@ -120,6 +120,7 @@ function parseAgentGuardEvent(json: string): ObservedEvent {
 
 function normalizeVendorRecord(agentKind: string, record: Record<string, unknown>): ObservedEvent[] {
   if (agentKind === "codex") return normalizeCodex(record);
+  if (agentKind === "opencode") return normalizeOpenCode(record);
   if (agentKind === "claude_code") return normalizeClaude(record);
   if (agentKind === "cursor") return normalizeCursor(record);
   return [];
@@ -156,6 +157,59 @@ function normalizeCodex(record: Record<string, unknown>): ObservedEvent[] {
       action: completed ? "tool_result" : "tool_call",
       resource: toolResource(item),
       metadata: compact(item, completed ? ["status", "result", "error"] : ["server", "tool", "arguments"])
+    }];
+  }
+  return [];
+}
+
+function normalizeOpenCode(record: Record<string, unknown>): ObservedEvent[] {
+  const type = stringValue(record.type);
+  const part = objectValue(record.part);
+  const sessionId = stringValue(record.sessionID);
+
+  if (type === "step_start") {
+    return [{ category: "agent", action: "step_started", metadata: { sessionId } }];
+  }
+  if (type === "step_finish") {
+    return [{
+      category: "agent",
+      action: "step_finished",
+      metadata: { sessionId, ...compact(part ?? {}, ["reason", "tokens", "cost"]) }
+    }];
+  }
+  if (type === "text" || type === "reasoning") {
+    const text = stringValue(part?.text);
+    if (!text) return [];
+    return [{
+      category: "agent",
+      action: type === "text" ? "message" : "reasoning_summary",
+      metadata: { sessionId, text }
+    }];
+  }
+  if (type === "tool_use" && part) {
+    const state = objectValue(part.state);
+    const status = stringValue(state?.status);
+    const completed = status === "completed" || status === "error";
+    const tool = stringValue(part.tool) ?? "tool";
+    return [{
+      category: tool.startsWith("mcp__") ? "mcp" : "agent",
+      action: completed ? "tool_result" : "tool_call",
+      resource: tool,
+      severity: status === "error" ? "medium" : "info",
+      metadata: {
+        sessionId,
+        callId: stringValue(part.callID),
+        status,
+        ...(state ? { state: compact(state, ["input", "output", "error", "title"]) } : {})
+      }
+    }];
+  }
+  if (type === "error") {
+    return [{
+      category: "agent",
+      action: "failed",
+      severity: "medium",
+      metadata: { sessionId, error: record.error }
     }];
   }
   return [];

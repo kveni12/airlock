@@ -10,6 +10,7 @@
  * agent scripts to be installed there, see scripts/setup-vm-runtime.sh / runtime/Dockerfile).
  */
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import type { FastifyInstance } from "fastify";
@@ -35,7 +36,7 @@ const HUMAN_PROMPT = [
   "Do not add external dependencies."
 ].join("\n");
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const provider = (process.env.AGENTGUARD_RUNTIME_PROVIDER ?? "process") as "lima" | "docker" | "process";
 const plannerCommand = provider === "process" ? [path.join(repoRoot, "runtime/intent-demo-planner.sh")] : ["agentguard-intent-demo-planner"];
 const builderCommand = provider === "process" ? [path.join(repoRoot, "runtime/intent-demo-builder.sh")] : ["agentguard-intent-demo-builder"];

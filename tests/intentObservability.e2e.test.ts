@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
@@ -19,7 +20,7 @@ import type {
   TimelineEntry
 } from "../src/types.js";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(repoRoot, "fixtures/intent-demo-repo");
 const planner = path.join(repoRoot, "runtime/intent-demo-planner.sh");
 const builder = path.join(repoRoot, "runtime/intent-demo-builder.sh");

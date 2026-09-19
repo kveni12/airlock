@@ -24,9 +24,9 @@ Then open `http://localhost:3001`. `dev:all` installs the frontend dependencies 
 
 ### Run a real agent on your own repository
 
-In the UI, open **New request**, record your prompt, then under **Agent & workspace** pick Claude Code / Codex / Cursor, point **Repo path** at any git checkout on the machine running the backend (e.g. `/Users/you/code/my-app`), and choose a runtime:
+In the UI, open **New request**, record your prompt, then under **Agent & workspace** pick Claude Code / Codex / OpenCode / Cursor / Devin, point **Repo path** at any git checkout on the machine running the backend (e.g. `/Users/you/code/my-app`), and choose a runtime:
 
-- `lima` (recommended): disposable VM; run `npm run vm:setup-agent -- claude_code` (or `codex`, `cursor`) once.
+- `lima` (recommended): disposable VM; run `npm run vm:setup-agent -- claude_code` (or `codex`, `opencode`, `cursor`) once.
 - `process`: no sandbox — the agent binary runs directly on your machine against a temporary copy of the repo. Your checkout is never mounted, but the agent has your machine's network and environment.
 
 **Devin** runs in its own cloud VM, so the `Devin` agent uses a bridge (`runtime/devin-agentguard-bridge.sh`) that drives a session through the [Devin API](https://docs.devin.ai/api-reference) with `DEVIN_API_KEY`. The planner run asks Devin for the intent as structured output; the builder run asks Devin to push its work to branch `agentguard/<run id>` on the repo's `origin` (Devin needs push access to that remote), then fetches the branch and applies the diff to the workspace so the normal git/filesystem telemetry, intent comparison and review apply to the result. Devin's chat messages are relayed as agent-reported evidence; what Devin does inside its own VM is not observed. Optional: `DEVIN_API_URL`, `DEVIN_SNAPSHOT_ID`, `DEVIN_MAX_ACU`, `DEVIN_POLL_INTERVAL_MS`; set `DEVIN_BRIDGE_COMMAND` to replace the API client with your own command.
@@ -150,6 +150,7 @@ Periscope is agent-agnostic at the runtime boundary. Any AI coding agent can run
 | Agent | Adapter kind | Default base VM | Authentication identifier |
 | --- | --- | --- | --- |
 | OpenAI Codex | `codex` | `agentguard-codex-base` | `OPENAI_API_KEY` |
+| OpenCode | `opencode` | `agentguard-opencode-base` | Provider-specific (`OPENCODE_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`) |
 | Claude Code | `claude_code` | `agentguard-claude-code-base` | `ANTHROPIC_API_KEY` |
 | Cursor Agent | `cursor` | `agentguard-cursor-base` | `CURSOR_API_KEY` |
 | Devin | `devin` | `agentguard-devin-base` | `DEVIN_API_KEY`, `DEVIN_ORG_ID` |
@@ -158,12 +159,13 @@ Build an agent-specific reusable base once:
 
 ```bash
 npm run vm:setup-agent -- codex
+npm run vm:setup-agent -- opencode
 npm run vm:setup-agent -- claude-code
 npm run vm:setup-agent -- cursor
 npm run vm:setup-agent -- devin
 ```
 
-The first three commands install and verify their official CLI. The Devin base contains the Periscope bridge because Devin normally executes in its cloud environment. Every actual run still receives a fresh disposable clone.
+The first four commands install and verify their official CLI. The Devin base contains the Periscope bridge because Devin normally executes in its cloud environment. Every actual run still receives a fresh disposable clone.
 
 There are two supported ways to launch agents:
 
@@ -240,6 +242,27 @@ Equivalent universal mode:
   }
 }
 ```
+
+### OpenCode
+
+OpenCode runs in headless mode with newline-delimited JSON telemetry. Periscope passes `--auto` because the disposable VM and Periscope policy layer are the execution boundary. Select a provider and model with adapter arguments, then declare only that provider's secret and network access:
+
+```json
+{
+  "agentId": "opencode_builder_001",
+  "agent": {
+    "kind": "opencode",
+    "prompt": "Implement the requested endpoint and run tests",
+    "args": ["--model", "openai/gpt-5"]
+  },
+  "permissions": {
+    "secrets": ["OPENAI_API_KEY"],
+    "network": ["api.openai.com"]
+  }
+}
+```
+
+The runtime setup installs the official `opencode-ai` npm package. OpenCode also supports Anthropic, OpenCode Zen, local models, and other providers; update `args`, `permissions.secrets`, and `permissions.network` together when changing providers.
 
 ### Claude Code
 
@@ -327,14 +350,14 @@ Use `kind: "custom"`, provide its non-interactive command, and select a base VM 
 }
 ```
 
-Filesystem, process, network-proxy, Git, policy, persistence, and SSE behavior is independent of the selected agent. Codex, Claude Code, and Cursor JSONL output receives best-effort semantic normalization. Other agents can use the protocol below without requiring a backend change.
+Filesystem, process, network-proxy, Git, policy, persistence, and SSE behavior is independent of the selected agent. Codex, OpenCode, Claude Code, and Cursor JSONL output receives best-effort semantic normalization. Other agents can use the protocol below without requiring a backend change.
 
 ## How Observability Works
 
 Periscope distinguishes independently observed evidence from agent-reported activity:
 
 - **Observed by the sandbox:** top-level process lifecycle, stdout/stderr, workspace creates/writes/deletes, proxy-aware network destinations, final Git changes, and policy violations.
-- **Normalized from vendor output:** Codex, Claude Code, and Cursor structured output becomes stable `agent.*`, `process.command_*`, and `mcp.*` events.
+- **Normalized from vendor output:** Codex, OpenCode, Claude Code, and Cursor structured output becomes stable `agent.*`, `process.command_*`, and `mcp.*` events.
 - **Reported by a bridge or custom agent:** one JSON object per line prefixed with `AGENTGUARD_EVENT `. These events receive `metadata.reportedByAgent: true`; source-provided run IDs and trust fields are ignored.
 
 Example custom-agent output:
@@ -452,7 +475,7 @@ npm run vm:setup
 npm run vm:test
 ```
 
-After building the agent-specific bases, run the cross-agent smoke suite. It launches real disposable VMs for Codex, Claude Code, Cursor Agent, and the Devin bridge, verifies each installed executable, and checks run completion and cleanup:
+After building the agent-specific bases, run the cross-agent smoke suite. It launches real disposable VMs for Codex, OpenCode, Claude Code, Cursor Agent, and the Devin bridge, verifies each installed executable, and checks run completion and cleanup:
 
 ```bash
 npm run vm:test-agents

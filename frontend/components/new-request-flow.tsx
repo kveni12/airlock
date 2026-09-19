@@ -32,7 +32,7 @@ const shell = (value: string) => value.trim() ? ["/bin/sh", "-c", value.trim()] 
 type AgentChoice = "script" | string;
 const REAL_AGENT_TIMEOUT_MS = 20 * 60_000;
 const SCRIPT_TIMEOUT_MS = 120_000;
-const PICKABLE_KINDS = ["claude_code", "codex", "cursor", "devin"];
+const PICKABLE_KINDS = ["claude_code", "codex", "opencode", "cursor", "devin"];
 
 export function NewRequestFlow() {
   const router = useRouter();
