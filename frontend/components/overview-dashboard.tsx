@@ -17,7 +17,7 @@ export function OverviewDashboard() {
 
   return <Page>
     {error ? <ConnectionError message={error} onRetry={refresh} /> : null}
-    {snapshot && snapshot.runs.length === 0 ? <EmptyState title="No agent runs yet" body="Start a run with POST /api/runs. It will appear here as soon as the backend stores it." /> : <>
+    {snapshot && snapshot.runs.length === 0 ? <EmptyState title="No agent runs yet" body="Create a request and start a run from the New request page, or seed data with npm run demo:intent." /> : <>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={Bot} label="Active agents" value={metrics.activeAgents} detail="Pending, starting, or running" />
         <Metric icon={CircleAlert} label="Policy alerts" value={metrics.policyAlerts} detail="Derived from policy events" warn={metrics.policyAlerts > 0} />
@@ -28,7 +28,7 @@ export function OverviewDashboard() {
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4"><div><p className="text-sm text-[#657068]">Latest run</p><h2 className="mt-1 text-xl font-semibold">{latestRun?.agent?.prompt || latestRun?.taskId || "Add OAuth support"}</h2><p className="mono mt-1 text-xs text-[#657068]">{latestRun?.repoBranch || "agent/oauth-support"}</p></div><span className={`status ${latestRun?.status === "failed" ? "status-warn" : "status-info"}`}>{latestRun ? statusLabel(latestRun.status) : "Demo"}</span></div>
           <div className="mt-6 grid grid-cols-3 gap-3"><Mini value={latestRun?.gitSummary?.filesChanged ?? 10} label="Files" /><Mini value={latestRun?.gitSummary ? `+${latestRun.gitSummary.insertions}` : "+428"} label="Insertions" /><Mini value={latestRun?.runtimeProvider ?? "lima"} label="Runtime" /></div>
-          <div className="mt-5 flex items-center justify-between border-t pt-4 text-sm"><span><span className="text-[#657068]">Agent</span> {latestRun?.agentId ?? "claude_builder_001"}</span><Link href="/activity" className="inline-flex items-center gap-2 font-semibold text-[#19734a]">View activity <ArrowRight className="size-4" /></Link></div>
+          <div className="mt-5 flex items-center justify-between border-t pt-4 text-sm"><span><span className="text-[#657068]">Agent</span> {latestRun?.agentId ?? "claude_builder_001"}</span><span className="flex gap-4">{latestRun && <Link href={`/runs/${latestRun.id}`} className="inline-flex items-center gap-2 font-semibold text-[#19734a]">Run detail <ArrowRight className="size-4" /></Link>}<Link href="/activity" className="inline-flex items-center gap-2 font-semibold text-[#19734a]">View activity <ArrowRight className="size-4" /></Link></span></div>
         </div>
         <div className={`card p-6 ${latestPolicyEvent || !snapshot ? "border-amber-300 bg-amber-50/50" : ""}`}><div className="flex gap-3"><Activity className="mt-0.5 size-5 text-[#9a5a13]" /><div><p className="text-sm text-[#657068]">Latest policy signal</p><h2 className="mt-2 font-semibold">{latestPolicyEvent?.action ? statusLabel(latestPolicyEvent.action) : snapshot ? "No policy violations" : "Unexpected secret access"}</h2><p className="mt-2 text-sm leading-6 text-[#657068]">{latestPolicyEvent?.resource || (snapshot ? "All recorded activity is within declared policy." : "Demo evidence: GOOGLE_CLIENT_SECRET was accessed outside declared intent.")}</p></div></div></div>
       </section>
