@@ -36,7 +36,7 @@ export class ProcessProvider implements SandboxProvider {
         ...process.env,
         ...runtimeEnvironment(proxyUrl),
         ...environment,
-        PATH: `${path.resolve("runtime")}${path.delimiter}${process.env.PATH ?? ""}`,
+        PATH: `${path.resolve("runtime/bin")}${path.delimiter}${path.resolve("runtime")}${path.delimiter}${process.env.PATH ?? ""}`,
         AGENTGUARD_WORKSPACE: workspacePath,
         AGENTGUARD_WORKSPACE_ACCESS: run.workspaceAccess ?? "read_write"
       },
