@@ -19,6 +19,7 @@ import {
 import { createId } from "../utils/id.js";
 import { DockerProvider } from "./dockerProvider.js";
 import { LimaProvider } from "./limaProvider.js";
+import { RuntimeSetupService } from "./runtimeSetupService.js";
 import { ProcessProvider } from "./processProvider.js";
 import type { SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 import { planWorkspaceMounts } from "./sandboxProvider.js";
@@ -35,6 +36,7 @@ export interface RuntimeManagerOptions {
 
 export class RuntimeManager {
   private readonly providers: Record<RuntimeProviderKind, SandboxProvider>;
+  readonly setup: RuntimeSetupService;
   private readonly active = new Map<string, { provider?: SandboxProvider; handle?: SandboxHandle; stopping: boolean }>();
 
   constructor(
@@ -42,9 +44,10 @@ export class RuntimeManager {
     private readonly events: EventCollector,
     private readonly options: RuntimeManagerOptions = {}
   ) {
+    this.setup = new RuntimeSetupService({ image: options.image, baseVm: options.baseVm });
     this.providers = {
       lima: new LimaProvider({ baseVm: options.baseVm, pidsLimit: options.pidsLimit }),
-      docker: new DockerProvider(options),
+      docker: new DockerProvider(options, this.setup),
       process: new ProcessProvider()
     };
   }
@@ -248,7 +251,17 @@ export class RuntimeManager {
           AGENTGUARD_RUN_PURPOSE: run.purpose ?? "builder",
           AGENTGUARD_WORKSPACE_ACCESS: run.workspaceAccess ?? "read_write"
         },
-        onOutput: (output) => outputMonitor?.observe(output)
+        onOutput: (output) => outputMonitor?.observe(output),
+        onStatus: (message) =>
+          void this.events.emitEvent({
+            runId: run.id,
+            taskId: run.taskId,
+            agentId: run.agentId,
+            category: "runtime",
+            action: "preparing",
+            severity: "info",
+            metadata: { provider: run.runtimeProvider, message }
+          })
       });
       this.active.set(run.id, { ...(this.active.get(run.id) ?? { stopping: false }), provider, handle });
 

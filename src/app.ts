@@ -18,6 +18,7 @@ import { ResolutionService, type ResolveFindingRequest } from "./resolution/reso
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
+import { listRepoDirectory } from "./repo/repoTree.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -96,6 +97,23 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   app.get("/health", async () => ({ ok: true }));
 
   app.get("/api/agent-profiles", async () => ({ profiles: await runtime.getAgentProfiles() }));
+
+  app.get("/api/runtime/status", async () => runtime.setup.status());
+
+  app.post("/api/runtime/setup", async (request, reply) => {
+    const body = request.body as { provider?: string; agent?: string } | undefined;
+    if (body?.provider === "docker") return reply.code(202).send(runtime.setup.startSetup({ provider: "docker" }));
+    if (body?.provider === "lima") return reply.code(202).send(runtime.setup.startSetup({ provider: "lima", agent: body.agent }));
+    return reply.code(400).send({ error: "provider must be 'docker' or 'lima'" });
+  });
+
+  app.get("/api/runtime/setup", async () => ({ jobs: runtime.setup.listJobs() }));
+
+  app.get("/api/runtime/setup/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const job = runtime.setup.getJob(id);
+    return job ?? reply.code(404).send({ error: `Setup job ${id} not found` });
+  });
 
   app.post("/api/runs", async (request, reply) => {
     try {
@@ -184,6 +202,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     const permissions = await store.getPermissions(id);
     if (!permissions) return reply.code(404).send({ error: "Run not found" });
     return permissions;
+  });
+
+  app.get("/api/repo-tree", async (request, reply) => {
+    const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
+    if (!repoPath) return reply.code(400).send({ error: "path is required" });
+    try {
+      return await listRepoDirectory(repoPath, dir ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get("/api/runs/:id/files", async (request, reply) => {
