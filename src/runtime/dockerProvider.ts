@@ -21,6 +21,8 @@ export interface DockerProviderOptions {
   pidsLimit?: number;
 }
 
+export const RUN_LABEL = "agentguard.run";
+
 export class DockerProvider implements SandboxProvider {
   readonly kind = "docker" as const;
   readonly proxyHostname = "host.docker.internal";
@@ -40,7 +42,7 @@ export class DockerProvider implements SandboxProvider {
    */
   async prepareNetwork(run: RunRecord): Promise<string> {
     const name = `agentguard-net-${run.id}`;
-    const network = await this.docker.createNetwork({ Name: name, Driver: "bridge", Internal: true, Labels: { "agentguard.run": run.id } });
+    const network = await this.docker.createNetwork({ Name: name, Driver: "bridge", Internal: true, Labels: { [RUN_LABEL]: run.id } });
     const info = await network.inspect() as { IPAM?: { Config?: Array<{ Gateway?: string }> } };
     const gateway = info.IPAM?.Config?.find((config) => config.Gateway)?.Gateway;
     if (!gateway) {
@@ -49,6 +51,29 @@ export class DockerProvider implements SandboxProvider {
     }
     this.networks.set(run.id, { name, gateway });
     return gateway;
+  }
+
+  /**
+   * Remove containers and networks labelled with a run id that is no longer active
+   * (left behind when the backend died mid-run). Returns the run ids that were cleaned up.
+   */
+  async reapOrphans(activeRunIds: Set<string>): Promise<string[]> {
+    const reaped = new Set<string>();
+    const containers = await this.docker.listContainers({ all: true, filters: { label: [RUN_LABEL] } }).catch(() => []);
+    for (const info of containers) {
+      const runId = info.Labels?.[RUN_LABEL];
+      if (!runId || activeRunIds.has(runId)) continue;
+      await this.docker.getContainer(info.Id).remove({ force: true }).catch(() => undefined);
+      reaped.add(runId);
+    }
+    const networks = await this.docker.listNetworks({ filters: { label: [RUN_LABEL] } }).catch(() => []);
+    for (const info of networks) {
+      const runId = info.Labels?.[RUN_LABEL];
+      if (!runId || activeRunIds.has(runId)) continue;
+      await this.docker.getNetwork(info.Id).remove().catch(() => undefined);
+      reaped.add(runId);
+    }
+    return [...reaped];
   }
 
   async releaseNetwork(run: RunRecord): Promise<void> {
@@ -61,13 +86,16 @@ export class DockerProvider implements SandboxProvider {
   async create(options: SandboxCreateOptions): Promise<DockerHandle> {
     const { run, workspacePath, proxyUrl, environment, mounts } = options;
     const name = `agentguard-${run.id}`;
-    const env = { ...runtimeEnvironment(proxyUrl), ...environment };
+    const user = containerUser();
+    const env = { HOME: "/tmp", ...runtimeEnvironment(proxyUrl), ...environment };
     const network = this.networks.get(run.id);
     const binds = dockerBinds(workspacePath, mounts);
     const container = await this.docker.createContainer({
       Image: run.runtimeImage ?? "agentguard-runtime:latest",
       name,
       Cmd: run.command,
+      Labels: { [RUN_LABEL]: run.id },
+      User: user,
       WorkingDir: "/workspace",
       Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
       HostConfig: {
@@ -77,6 +105,8 @@ export class DockerProvider implements SandboxProvider {
         CpuShares: this.options.cpuShares ?? 512,
         PidsLimit: this.options.pidsLimit ?? 256,
         Privileged: false,
+        CapDrop: ["ALL"],
+        SecurityOpt: ["no-new-privileges"],
         NetworkMode: network?.name ?? "none",
         ReadonlyRootfs: false
       }
@@ -117,6 +147,15 @@ export class DockerProvider implements SandboxProvider {
       for (const [runId, network] of this.networks) if (network.name === docker.networkName) this.networks.delete(runId);
     }
   }
+}
+
+/**
+ * Run as the host user that owns the workspace copy rather than root: with all capabilities
+ * dropped the process can only touch what the bind-mount permissions already allow it to.
+ */
+function containerUser(): string | undefined {
+  if (!process.getuid || !process.getgid) return undefined;
+  return `${process.getuid()}:${process.getgid()}`;
 }
 
 function asDockerHandle(handle: SandboxHandle): DockerHandle {

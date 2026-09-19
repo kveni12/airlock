@@ -49,6 +49,46 @@ export class RuntimeManager {
     };
   }
 
+  /**
+   * Called once at startup. Runs still marked in-flight belong to a previous backend process and
+   * can never finish, so they are failed, their sandboxes/networks/VMs removed and their temp
+   * workspaces deleted when the run asked for cleanup.
+   */
+  async recover(): Promise<{ failedRuns: string[]; reaped: Record<RuntimeProviderKind, string[]> }> {
+    const inFlight = (await this.store.listRuns()).filter(
+      (run) => ["starting", "running", "stopping"].includes(run.status) && !this.active.has(run.id)
+    );
+    const failedRuns: string[] = [];
+    for (const run of inFlight) {
+      await this.store.updateRun(run.id, {
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        failureReason: "Periscope backend restarted while the run was in flight; sandbox torn down"
+      });
+      await this.events.emitEvent({
+        runId: run.id,
+        taskId: run.taskId,
+        agentId: run.agentId,
+        category: "runtime",
+        action: "failed",
+        severity: "high",
+        metadata: { reason: "backend_restart" }
+      });
+      if (run.workspacePath && run.cleanupWorkspace) {
+        await rm(run.workspacePath, { recursive: true, force: true }).catch(() => undefined);
+      }
+      failedRuns.push(run.id);
+    }
+
+    const activeRunIds = new Set(this.active.keys());
+    const reaped: Record<RuntimeProviderKind, string[]> = { docker: [], lima: [], process: [] };
+    for (const provider of Object.values(this.providers)) {
+      if (!provider.reapOrphans) continue;
+      reaped[provider.kind] = await provider.reapOrphans(activeRunIds).catch(() => []);
+    }
+    return { failedRuns, reaped };
+  }
+
   async createRun(request: CreateRunRequest): Promise<RunRecord> {
     validateCreateRun(request);
     await assertReadableDirectory(request.repo.path);
