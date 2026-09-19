@@ -33,19 +33,19 @@ export function RunDetail({ runId }: { runId: string }) {
     <header className="card p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2"><RunStatusBadge status={run.status} /><span className="status capitalize">{run.purpose ?? "builder"}</span>{run.workspaceAccess === "read_only" && <span className="status status-muted">read-only workspace</span>}<span className="mono text-xs text-[#657068]">{run.runtimeProvider}</span></div>
+          <div className="flex flex-wrap items-center gap-2"><RunStatusBadge status={run.status} /><span className="status capitalize">{run.purpose ?? "builder"}</span>{run.workspaceAccess === "read_only" && <span className="status status-muted">read-only workspace</span>}<span className="mono text-xs text-[#64717c]">{run.runtimeProvider}</span></div>
           <h1 className="mt-3 text-3xl font-semibold tracking-[-.04em]">{run.taskId}</h1>
-          <p className="mono mt-1 text-xs text-[#657068]">{run.id} · agent {run.agentId} · {formatDateTime(run.createdAt)}{run.completedAt && ` → ${formatTime(run.completedAt)}`}{run.exitCode != null && ` · exit ${run.exitCode}`}</p>
+          <p className="mono mt-1 text-xs text-[#64717c]">{run.id} · agent {run.agentId} · {formatDateTime(run.createdAt)}{run.completedAt && ` → ${formatTime(run.completedAt)}`}{run.exitCode != null && ` · exit ${run.exitCode}`}</p>
           {run.failureReason && <p className="mt-2 text-sm text-[#9a3d31]">{run.failureReason}</p>}
-          {run.parentRunId && <p className="mt-1 text-xs text-[#657068]">Resolves finding from <Link className="underline" href={`/runs/${run.parentRunId}`}>{run.parentRunId}</Link></p>}
+          {run.parentRunId && <p className="mt-1 text-xs text-[#64717c]">Resolves finding from <Link className="underline" href={`/runs/${run.parentRunId}`}>{run.parentRunId}</Link></p>}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href={`/workbench/${run.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-[#101913] px-3 py-2 text-xs font-semibold text-white hover:bg-[#233126]"><PanelsTopLeft className="size-3.5" />Open in workbench</Link>
-          <button onClick={refreshAll} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f4f7f1]"><RefreshCw className="size-3.5" />Refresh</button>
+          <Link href={`/workbench/${run.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-[#182a33] px-3 py-2 text-xs font-semibold text-white hover:bg-[#182a33]"><PanelsTopLeft className="size-3.5" />Open in workbench</Link>
+          <button onClick={refreshAll} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]"><RefreshCw className="size-3.5" />Refresh</button>
           {ACTIVE.includes(run.status) && <ActionButton variant="danger" confirm="Stop this run and tear down its sandbox?" onClick={async () => { await stopRun(run.id); await refreshAll(); }}>Stop run</ActionButton>}
           {run.status === "completed" && !d.review && (run.purpose ?? "builder") === "builder" && <ActionButton onClick={async () => { await createReview(run.id); await refreshAll(); }}>Start review</ActionButton>}
           {d.review && d.review.status === "needs_human" && <ActionButton disabled={openFindings.length > 0} onClick={async () => { await approveReview(d.review!.id, { actor: "human", reason: "Approved from dashboard" }); await refreshAll(); }}>Approve review{openFindings.length > 0 && ` (${openFindings.length} open)`}</ActionButton>}
-          {d.review && <Link href={`/reviews/${d.review.id}`} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f4f7f1]">Open review</Link>}
+          {d.review && <Link href={`/reviews/${d.review.id}`} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]">Open review</Link>}
         </div>
       </div>
       <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -55,7 +55,7 @@ export function RunDetail({ runId }: { runId: string }) {
       </div>
     </header>
 
-    <div className="flex gap-2 border-b">{(["chain", "findings", "timeline"] as const).map((item) => <button key={item} onClick={() => setTab(item)} className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold capitalize ${tab === item ? "border-[#101913] text-[#101913]" : "border-transparent text-[#657068]"}`}>{item}{item === "findings" && ` (${d.findings.length})`}{item === "timeline" && timeline.data && ` (${timeline.data.length})`}</button>)}</div>
+    <div className="flex gap-2 border-b">{(["chain", "findings", "timeline"] as const).map((item) => <button key={item} onClick={() => setTab(item)} className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold capitalize ${tab === item ? "border-[#182a33] text-[#182a33]" : "border-transparent text-[#64717c]"}`}>{item}{item === "findings" && ` (${d.findings.length})`}{item === "timeline" && timeline.data && ` (${timeline.data.length})`}</button>)}</div>
 
     {tab === "chain" && <div className="space-y-3">
       <RequestSection request={d.request} analysis={d.requestAnalysis} />
@@ -78,43 +78,43 @@ export function RunDetail({ runId }: { runId: string }) {
   </div>;
 }
 
-function Back() { return <Link href="/runs" className="inline-flex items-center gap-2 text-sm text-[#657068]"><ArrowLeft className="size-4" />Back to runs</Link>; }
-function Arrow() { return <div className="flex justify-center text-[#9ca99d]"><ArrowDown className="size-5" /></div>; }
+function Back() { return <Link href="/runs" className="inline-flex items-center gap-2 text-sm text-[#64717c]"><ArrowLeft className="size-4" />Back to runs</Link>; }
+function Arrow() { return <div className="flex justify-center text-[#98a4ad]"><ArrowDown className="size-5" /></div>; }
 
 export function AlignmentTile({ label, segment, counts }: { label: string; segment?: AlignmentSegment; counts?: RunDetailModel["alignment"]["counts"] }) {
   const deviations = counts ? counts.undeclaredFiles + counts.undeclaredDependencies + counts.undeclaredNetworkDestinations + counts.undeclaredTools : 0;
-  return <div className="rounded-xl border bg-[#f7f9f4] p-4">
-    <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-wider text-[#657068]">{label}</p><AlignmentBadge status={segment?.status} /></div>
-    <p className="mt-2 text-sm text-[#3a443c]">{segment?.detail ?? "Not evaluated."}</p>
-    {counts && <p className="mt-2 text-xs text-[#657068]">{deviations} undeclared · {counts.missingExpectedActions} missing expected</p>}
-    {segment && segment.findingIds.length > 0 && <p className="mt-1 text-xs text-[#657068]">{segment.findingIds.length} finding{segment.findingIds.length === 1 ? "" : "s"}</p>}
+  return <div className="rounded-xl border bg-[#f6f2ec] p-4">
+    <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">{label}</p><AlignmentBadge status={segment?.status} /></div>
+    <p className="mt-2 text-sm text-[#3a4650]">{segment?.detail ?? "Not evaluated."}</p>
+    {counts && <p className="mt-2 text-xs text-[#64717c]">{deviations} undeclared · {counts.missingExpectedActions} missing expected</p>}
+    {segment && segment.findingIds.length > 0 && <p className="mt-1 text-xs text-[#64717c]">{segment.findingIds.length} finding{segment.findingIds.length === 1 ? "" : "s"}</p>}
   </div>;
 }
 
 export function RequestSection({ request, analysis }: { request?: HumanRequest; analysis?: RequestAnalysis }) {
   return <Section eyebrow="1 · Human request" title={request ? "What the human asked for" : "No human request linked"}>
-    {!request ? <p className="text-sm text-[#657068]">This run was started without a first-class request. Alignment for Request → Intent cannot be evaluated.</p> : <div className="space-y-4">
-      <blockquote className="whitespace-pre-wrap rounded-xl border-l-4 border-[#dff869] bg-[#f7f9f4] p-4 text-sm">{request.rawPrompt}</blockquote>
-      <p className="mono text-xs text-[#657068]">{request.id} · {formatDateTime(request.createdAt)} · raw prompt is immutable</p>
+    {!request ? <p className="text-sm text-[#64717c]">This run was started without a first-class request. Alignment for Request → Intent cannot be evaluated.</p> : <div className="space-y-4">
+      <blockquote className="whitespace-pre-wrap rounded-xl border-l-4 border-[#d1b191] bg-[#f6f2ec] p-4 text-sm">{request.rawPrompt}</blockquote>
+      <p className="mono text-xs text-[#64717c]">{request.id} · {formatDateTime(request.createdAt)} · raw prompt is immutable</p>
       {analysis && <dl className="grid gap-3 md:grid-cols-2">
         <StatementList label="Objectives" items={analysis.objectives} />
         <StatementList label="Explicit constraints" items={analysis.explicitConstraints} />
         <StatementList label="Inferred expectations" items={analysis.inferredExpectations} />
-        <div><dt className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Forbidden resources</dt><dd className="mt-1.5">{analysis.explicitlyForbiddenResources.length ? <ul className="space-y-1 text-sm">{analysis.explicitlyForbiddenResources.map((r) => <li key={r.resource} className="flex flex-wrap items-center gap-2"><span className="mono">{r.resource}</span><span className="status status-muted">{r.category}</span><span className="text-xs text-[#657068]">“{r.excerpt}”</span></li>)}</ul> : <span className="text-sm text-[#657068]">none</span>}</dd></div>
-        {analysis.ambiguities.length > 0 && <div className="md:col-span-2"><dt className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Ambiguities</dt><dd className="mt-1.5 text-sm">{analysis.ambiguities.join("; ")}</dd></div>}
+        <div><dt className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Forbidden resources</dt><dd className="mt-1.5">{analysis.explicitlyForbiddenResources.length ? <ul className="space-y-1 text-sm">{analysis.explicitlyForbiddenResources.map((r) => <li key={r.resource} className="flex flex-wrap items-center gap-2"><span className="mono">{r.resource}</span><span className="status status-muted">{r.category}</span><span className="text-xs text-[#64717c]">“{r.excerpt}”</span></li>)}</ul> : <span className="text-sm text-[#64717c]">none</span>}</dd></div>
+        {analysis.ambiguities.length > 0 && <div className="md:col-span-2"><dt className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Ambiguities</dt><dd className="mt-1.5 text-sm">{analysis.ambiguities.join("; ")}</dd></div>}
       </dl>}
     </div>}
   </Section>;
 }
 
 function StatementList({ label, items }: { label: string; items: RequestAnalysis["objectives"] }) {
-  return <div><dt className="text-xs font-semibold uppercase tracking-wider text-[#657068]">{label}</dt><dd className="mt-1.5">{items.length ? <ul className="space-y-1 text-sm">{items.map((s, i) => <li key={i} className="flex flex-wrap items-center gap-2"><span>{s.text}</span><span className={`status ${s.provenance === "explicit" ? "status-good" : "status-warn"}`}>{s.provenance}</span></li>)}</ul> : <span className="text-sm text-[#657068]">none</span>}</dd></div>;
+  return <div><dt className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">{label}</dt><dd className="mt-1.5">{items.length ? <ul className="space-y-1 text-sm">{items.map((s, i) => <li key={i} className="flex flex-wrap items-center gap-2"><span>{s.text}</span><span className={`status ${s.provenance === "explicit" ? "status-good" : "status-warn"}`}>{s.provenance}</span></li>)}</ul> : <span className="text-sm text-[#64717c]">none</span>}</dd></div>;
 }
 
 export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onChanged: () => Promise<void> }) {
   return <Section eyebrow="2 · Agent intent" title={intent ? intent.goal : "No declared intent"} action={intent && <div className="flex flex-col items-end gap-2"><AlignmentBadge status={intent.alignment?.status} />{intent.approval ? <span className={`status ${intent.approval.status === "approved" ? "status-good" : "status-bad"}`}>{intent.approval.status}{intent.approval.actor && ` by ${intent.approval.actor}`}</span> : <div className="flex gap-2"><ActionButton onClick={async () => { await approveIntent(intent.id, { actor: "human" }); await onChanged(); }}>Approve intent</ActionButton><ActionButton variant="danger" onClick={async () => { await rejectIntent(intent.id, { actor: "human", reason: "Rejected from dashboard" }); await onChanged(); }}>Reject</ActionButton></div>}</div>}>
-    {!intent ? <p className="text-sm text-[#657068]">The agent did not declare structured intent before execution, so Intent → Behavior drift cannot be evaluated.</p> : <dl className="space-y-3">
-      <KeyValue label="Interpretation">{intent.interpretation || <span className="text-[#657068]">—</span>}</KeyValue>
+    {!intent ? <p className="text-sm text-[#64717c]">The agent did not declare structured intent before execution, so Intent → Behavior drift cannot be evaluated.</p> : <dl className="space-y-3">
+      <KeyValue label="Interpretation">{intent.interpretation || <span className="text-[#64717c]">—</span>}</KeyValue>
       <KeyValue label="Planned actions"><ol className="list-decimal space-y-1 pl-5">{intent.plannedChanges.map((a, i) => <li key={i}>{a}</li>)}</ol></KeyValue>
       <KeyValue label="Expected files"><Chips items={intent.expectedFiles} /></KeyValue>
       <KeyValue label="Expected commands"><Chips items={intent.expectedCommands} /></KeyValue>
@@ -124,14 +124,14 @@ export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onC
       <KeyValue label="Expected MCP / tools"><Chips items={[...intent.expectedMcpServers, ...intent.expectedTools]} /></KeyValue>
       <KeyValue label="Constraints"><Chips items={intent.constraints} mono={false} /></KeyValue>
       {intent.assumptions.length > 0 && <KeyValue label="Assumptions"><Chips items={intent.assumptions} mono={false} /></KeyValue>}
-      <KeyValue label="Provenance"><span className="text-xs text-[#657068]">Declared by {intent.createdBy.agentId} ({intent.createdBy.agentType}) at {formatDateTime(intent.createdAt)}{intent.planningRunId && <> in read-only planning run <Link className="underline" href={`/runs/${intent.planningRunId}`}>{intent.planningRunId}</Link></>}. Intent is agent-reported.</span></KeyValue>
+      <KeyValue label="Provenance"><span className="text-xs text-[#64717c]">Declared by {intent.createdBy.agentId} ({intent.createdBy.agentType}) at {formatDateTime(intent.createdAt)}{intent.planningRunId && <> in read-only planning run <Link className="underline" href={`/runs/${intent.planningRunId}`}>{intent.planningRunId}</Link></>}. Intent is agent-reported.</span></KeyValue>
     </dl>}
   </Section>;
 }
 
 export function PermissionsSection({ permissions }: { permissions?: PermissionSnapshot }) {
   return <Section eyebrow="3 · Permissions" title="What the agent was allowed to access">
-    {!permissions ? <p className="text-sm text-[#657068]">No permission snapshot recorded.</p> : <dl className="space-y-3">
+    {!permissions ? <p className="text-sm text-[#64717c]">No permission snapshot recorded.</p> : <dl className="space-y-3">
       <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "RW" : "R"}`)} /></KeyValue>
       <KeyValue label="Network"><Chips items={permissions.network ?? []} /></KeyValue>
       <KeyValue label="Secrets"><Chips items={permissions.secrets ?? []} /></KeyValue>
@@ -142,7 +142,7 @@ export function PermissionsSection({ permissions }: { permissions?: PermissionSn
 }
 
 export function BehaviorSection({ behavior, intent }: { behavior?: ObservedBehavior; intent?: AgentIntent }) {
-  if (!behavior) return <Section eyebrow="4 · Observed behavior" title="No telemetry yet"><p className="text-sm text-[#657068]">Behavior appears once the sandbox emits events.</p></Section>;
+  if (!behavior) return <Section eyebrow="4 · Observed behavior" title="No telemetry yet"><p className="text-sm text-[#64717c]">Behavior appears once the sandbox emits events.</p></Section>;
   const declared = (items: string[] | undefined) => new Set((items ?? []).map((i) => i.replace(/^\.\//, "")));
   const files = declared(intent?.expectedFiles);
   const deps = declared(intent?.expectedDependencies);
@@ -163,8 +163,8 @@ export function BehaviorSection({ behavior, intent }: { behavior?: ObservedBehav
       <KeyValue label="Tools"><ObservedList items={behavior.tools} /></KeyValue>
     </dl>
     <div className="mt-5 border-t pt-4">
-      <p className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Telemetry coverage</p>
-      <p className="mt-1 text-xs text-[#657068]">Channels marked unavailable cannot be observed; their absence above is not evidence that nothing happened.</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Telemetry coverage</p>
+      <p className="mt-1 text-xs text-[#64717c]">Channels marked unavailable cannot be observed; their absence above is not evidence that nothing happened.</p>
       <div className="mt-2 flex flex-wrap gap-2">{Object.entries(behavior.coverage).map(([channel, level]) => <span key={channel} className="inline-flex items-center gap-1.5 rounded-md border bg-white px-2 py-1 text-xs"><span className="mono">{channel}</span><VerificationBadge verification={level} /></span>)}</div>
     </div>
   </Section>;
@@ -181,16 +181,16 @@ function matches(declared: Set<string>, observed: string): boolean {
 }
 
 function ObservedList<T extends ObservedItem>({ items, flag, suffix }: { items: T[]; flag?: (item: T) => boolean; suffix?: (item: T) => string | undefined }) {
-  if (!items.length) return <span className="text-sm text-[#657068]">none observed</span>;
+  if (!items.length) return <span className="text-sm text-[#64717c]">none observed</span>;
   return <ul className="space-y-1">{items.map((item, index) => {
     const undeclared = flag?.(item) ?? false;
     const extra = suffix?.(item);
-    return <li key={`${item.name}-${item.eventIds[0] ?? index}`} className="flex flex-wrap items-center gap-2 text-sm"><span className={undeclared ? "text-[#815017]" : "text-[#14623f]"}>{undeclared ? "⚠" : "✓"}</span><span className="mono">{item.name}</span>{extra && <span className="text-xs text-[#657068]">{extra}</span>}{undeclared && <span className="status status-warn">undeclared</span>}<VerificationBadge verification={item.verification} /><span className="text-xs text-[#9ca99d]">{item.eventIds.length} event{item.eventIds.length === 1 ? "" : "s"}</span></li>;
+    return <li key={`${item.name}-${item.eventIds[0] ?? index}`} className="flex flex-wrap items-center gap-2 text-sm"><span className={undeclared ? "text-[#815017]" : "text-[#14623f]"}>{undeclared ? "⚠" : "✓"}</span><span className="mono">{item.name}</span>{extra && <span className="text-xs text-[#64717c]">{extra}</span>}{undeclared && <span className="status status-warn">undeclared</span>}<VerificationBadge verification={item.verification} /><span className="text-xs text-[#98a4ad]">{item.eventIds.length} event{item.eventIds.length === 1 ? "" : "s"}</span></li>;
   })}</ul>;
 }
 
 function UnavailableNote({ reason }: { reason: string }) {
-  return <span className="inline-flex flex-wrap items-center gap-2 text-sm"><VerificationBadge verification="unavailable" /><span className="text-xs text-[#657068]" title={verificationHelp("unavailable")}>{reason}</span></span>;
+  return <span className="inline-flex flex-wrap items-center gap-2 text-sm"><VerificationBadge verification="unavailable" /><span className="text-xs text-[#64717c]" title={verificationHelp("unavailable")}>{reason}</span></span>;
 }
 
 export function ResultSection({ result, detail }: { result: ResultSummary; detail: RunDetailModel }) {
@@ -200,19 +200,19 @@ export function ResultSection({ result, detail }: { result: ResultSummary; detai
       <KeyValue label="Diff">{result.filesChanged.length} files · <span className="text-[#19734a]">+{result.insertions}</span> <span className="text-[#9a3d31]">−{result.deletions}</span>{result.commits.length > 0 && ` · ${result.commits.length} commit${result.commits.length === 1 ? "" : "s"}`}</KeyValue>
       <KeyValue label="Files changed"><Chips items={result.filesChanged} /></KeyValue>
       <KeyValue label="Dependencies changed"><Chips items={result.dependenciesChanged.map((d) => `${d.type === "dependency_added" ? "+" : "−"} ${d.name} (${d.manifest})`)} /></KeyValue>
-      <KeyValue label="Tests">{result.tests.length ? <ul className="space-y-1">{result.tests.map((t, i) => <li key={i} className="flex flex-wrap items-center gap-2 text-sm"><span className="mono">{t.command}</span><span className={`status ${t.passed ? "status-good" : t.passed === false ? "status-bad" : "status-muted"}`}>{t.passed === undefined ? "unknown" : t.passed ? "passed" : "failed"}</span><VerificationBadge verification={t.verification} /></li>)}</ul> : <span className="text-sm text-[#657068]">no test execution observed</span>}</KeyValue>
-      <KeyValue label="Review">{result.review ? <span>{result.review.filesReviewed} / {result.review.filesTotal} files reviewed · {result.review.filesWithFindings} with findings · <Link className="underline" href={`/reviews/${result.review.reviewId}`}>{result.review.status.replace("_", " ")}</Link>{result.review.approvedAt && ` · approved ${formatDateTime(result.review.approvedAt)}${result.review.approval?.actor ? ` by ${result.review.approval.actor}` : ""}`}</span> : <span className="text-sm text-[#657068]">not reviewed</span>}</KeyValue>
+      <KeyValue label="Tests">{result.tests.length ? <ul className="space-y-1">{result.tests.map((t, i) => <li key={i} className="flex flex-wrap items-center gap-2 text-sm"><span className="mono">{t.command}</span><span className={`status ${t.passed ? "status-good" : t.passed === false ? "status-bad" : "status-muted"}`}>{t.passed === undefined ? "unknown" : t.passed ? "passed" : "failed"}</span><VerificationBadge verification={t.verification} /></li>)}</ul> : <span className="text-sm text-[#64717c]">no test execution observed</span>}</KeyValue>
+      <KeyValue label="Review">{result.review ? <span>{result.review.filesReviewed} / {result.review.filesTotal} files reviewed · {result.review.filesWithFindings} with findings · <Link className="underline" href={`/reviews/${result.review.reviewId}`}>{result.review.status.replace("_", " ")}</Link>{result.review.approvedAt && ` · approved ${formatDateTime(result.review.approvedAt)}${result.review.approval?.actor ? ` by ${result.review.approval.actor}` : ""}`}</span> : <span className="text-sm text-[#64717c]">not reviewed</span>}</KeyValue>
       <KeyValue label="Findings">{result.findings.total} total · {result.findings.open} open · {result.findings.resolved} resolved · {result.findings.dismissed} dismissed</KeyValue>
-      {detail.resolutions.length > 0 && <KeyValue label="Resolutions"><ul className="space-y-1 text-sm">{detail.resolutions.map((r) => <li key={r.id} className="flex flex-wrap items-center gap-2"><span className={`status ${r.status === "resolved" ? "status-good" : r.status === "failed" ? "status-bad" : "status-info"}`}>{r.status.replace("_", " ")}</span><span className="mono text-xs">{r.findingId}</span>{r.resolutionRunId && <Link className="text-xs underline" href={`/runs/${r.resolutionRunId}`}>resolver run</Link>}{r.reReviewResult && <span className="text-xs text-[#657068]">{r.reReviewResult.summary}</span>}</li>)}</ul></KeyValue>}
+      {detail.resolutions.length > 0 && <KeyValue label="Resolutions"><ul className="space-y-1 text-sm">{detail.resolutions.map((r) => <li key={r.id} className="flex flex-wrap items-center gap-2"><span className={`status ${r.status === "resolved" ? "status-good" : r.status === "failed" ? "status-bad" : "status-info"}`}>{r.status.replace("_", " ")}</span><span className="mono text-xs">{r.findingId}</span>{r.resolutionRunId && <Link className="text-xs underline" href={`/runs/${r.resolutionRunId}`}>resolver run</Link>}{r.reReviewResult && <span className="text-xs text-[#64717c]">{r.reReviewResult.summary}</span>}</li>)}</ul></KeyValue>}
     </dl>
   </Section>;
 }
 
 export const actorStyle: Record<TimelineEntry["actor"], string> = {
-  human: "bg-[#dff869] text-[#17200f]",
+  human: "bg-[#d1b191] text-[#182a33]",
   agent: "bg-[#eff8fc] text-[#265d78]",
-  agentguard: "bg-[#17261c] text-[#f5ffd7]",
-  runtime: "bg-[#f1f4ee] text-[#3a443c]",
+  agentguard: "bg-[#182a33] text-[#ecdcc8]",
+  runtime: "bg-[#f0f2f3] text-[#3a4650]",
   reviewer: "bg-[#fff8e8] text-[#815017]",
   resolver: "bg-[#effaf3] text-[#14623f]"
 };
@@ -221,12 +221,12 @@ export function Timeline({ entries, error }: { entries: TimelineEntry[]; error: 
   if (error) return <ErrorBanner message={error} />;
   if (!entries.length) return <Empty title="Timeline is empty" />;
   return <ol className="card divide-y">{entries.map((entry) => <li key={entry.id} className="grid gap-2 p-4 sm:grid-cols-[88px_110px_minmax(0,1fr)] sm:items-start">
-    <span className="mono text-xs text-[#657068]">{formatTime(entry.timestamp)}</span>
+    <span className="mono text-xs text-[#64717c]">{formatTime(entry.timestamp)}</span>
     <span className={`status justify-self-start border-transparent uppercase ${actorStyle[entry.actor]}`}>{entry.actor}</span>
     <div className="min-w-0">
-      <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">{entry.title}</span><span className="mono text-[10px] text-[#9ca99d]">{entry.kind}</span>{entry.severity && entry.severity !== "info" && <SeverityBadge severity={entry.severity} />}<VerificationBadge verification={entry.verification} />{entry.evidenceSource && <span className="text-[10px] text-[#9ca99d]">via {entry.evidenceSource}</span>}</div>
-      {entry.detail && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[#3a443c]">{entry.detail}</p>}
-      <p className="mono mt-1 text-[10px] text-[#9ca99d]">{Object.entries(entry.refs).filter(([, v]) => v && (!Array.isArray(v) || v.length)).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`).join(" · ")}</p>
+      <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">{entry.title}</span><span className="mono text-[10px] text-[#98a4ad]">{entry.kind}</span>{entry.severity && entry.severity !== "info" && <SeverityBadge severity={entry.severity} />}<VerificationBadge verification={entry.verification} />{entry.evidenceSource && <span className="text-[10px] text-[#98a4ad]">via {entry.evidenceSource}</span>}</div>
+      {entry.detail && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[#3a4650]">{entry.detail}</p>}
+      <p className="mono mt-1 text-[10px] text-[#98a4ad]">{Object.entries(entry.refs).filter(([, v]) => v && (!Array.isArray(v) || v.length)).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`).join(" · ")}</p>
     </div>
   </li>)}</ol>;
 }
