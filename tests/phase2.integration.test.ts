@@ -11,7 +11,7 @@ import type { Finding, ResolutionAttempt, Review, RunRecord } from "../src/types
 
 const runPhase2 = process.env.RUN_PHASE2_E2E === "1";
 
-describe.skipIf(!runPhase2)("AgentGuard Phase 2 governance loop", () => {
+describe.skipIf(!runPhase2)("Periscope Phase 2 governance loop", () => {
   const cleanupPaths: string[] = [];
   afterAll(async () => {
     for (const cleanupPath of cleanupPaths) await rm(cleanupPath, { recursive: true, force: true });

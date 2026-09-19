@@ -1,7 +1,7 @@
 /**
  * Deterministic Intent Observability demo.
  *
- * Drives the real AgentGuard HTTP API (in-process via Fastify inject) through:
+ * Drives the real Periscope HTTP API (in-process via Fastify inject) through:
  *   human request -> read-only planner intent -> request/intent alignment -> execution
  *   -> telemetry -> intent/behavior findings -> review -> resolution -> re-review -> approval
  *

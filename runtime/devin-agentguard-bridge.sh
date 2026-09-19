@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Devin bridge for AgentGuard.
+# Devin bridge for Periscope.
 #
-# Devin runs in its own cloud VM, so AgentGuard cannot sandbox it directly. This bridge runs
-# inside the AgentGuard sandbox, drives a Devin session through the public API
+# Devin runs in its own cloud VM, so Periscope cannot sandbox it directly. This bridge runs
+# inside the Periscope sandbox, drives a Devin session through the public API
 # (https://docs.devin.ai/api-reference) and brings the outcome back into /workspace:
 #
 #   planner  (AGENTGUARD_WORKSPACE_ACCESS=read_only): asks Devin for the structured intent
 #            (via structured_output) and prints it as an AGENTGUARD_EVENT agent.intent line.
 #   builder  : asks Devin to push its work to branch agentguard/<run id> of the repo's origin,
-#            then fetches that branch and applies the diff to /workspace so AgentGuard's
+#            then fetches that branch and applies the diff to /workspace so Periscope's
 #            filesystem/git telemetry observes the resulting changes.
 #
 # Devin's own messages are relayed as agent.message events (agent-reported evidence). Devin's
-# activity inside its cloud VM is NOT observed by AgentGuard; only the resulting diff is.
+# activity inside its cloud VM is NOT observed by Periscope; only the resulting diff is.
 #
 # Environment: DEVIN_API_KEY (required), DEVIN_API_URL (default https://api.devin.ai),
 # DEVIN_SNAPSHOT_ID, DEVIN_MAX_ACU, DEVIN_POLL_INTERVAL_MS, DEVIN_BRIDGE_COMMAND (legacy:
@@ -97,7 +97,7 @@ async function main() {
 
   const session = await api("POST", "/v1/sessions", {
     prompt: `${prompt}\n\n${context}`,
-    title: `AgentGuard ${planning ? "planner" : "builder"} ${runId}`,
+    title: `Periscope ${planning ? "planner" : "builder"} ${runId}`,
     unlisted: true,
     tags: ["agentguard", runId],
     ...(process.env.DEVIN_SNAPSHOT_ID ? { snapshot_id: process.env.DEVIN_SNAPSHOT_ID } : {}),
@@ -120,7 +120,7 @@ async function main() {
     if (status === "blocked") {
       if (planning && details.structured_output) break;
       if (!planning && branchPushed(origin)) break;
-      throw new Error(`Devin session ${session.session_id} is blocked waiting for input (${session.url}); AgentGuard runs are non-interactive.`);
+      throw new Error(`Devin session ${session.session_id} is blocked waiting for input (${session.url}); Periscope runs are non-interactive.`);
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }

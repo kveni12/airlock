@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "AgentGuard demo agent starting"
+echo "Periscope demo agent starting"
 echo 'AGENTGUARD_EVENT {"category":"agent","action":"message","metadata":{"text":"Preparing the demo workspace changes."}}'
 
 mkdir -p src config
@@ -26,7 +26,7 @@ fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
 fi
 
 cat > config/demo-sensitive-change.txt <<'EOF'
-This file intentionally triggers the sensitive-file policy for the AgentGuard demo.
+This file intentionally triggers the sensitive-file policy for the Periscope demo.
 EOF
 
 echo 'AGENTGUARD_EVENT {"category":"agent","action":"tool_call","resource":"shell","metadata":{"command":"npm test"}}'
@@ -40,5 +40,5 @@ fi
 
 curl -fsSL --max-time 5 http://example.com >/dev/null || true
 
-echo "AgentGuard demo agent completed"
+echo "Periscope demo agent completed"
 echo 'AGENTGUARD_EVENT {"category":"agent","action":"message","metadata":{"text":"Demo task completed."}}'

@@ -1,13 +1,13 @@
-# AgentGuard Intent Observability Specification
+# Periscope Intent Observability Specification
 
 ## Objective
 
-AgentGuard must answer five distinct questions for every coding-agent run and keep the answers separate:
+Periscope must answer five distinct questions for every coding-agent run and keep the answers separate:
 
 1. What did the **human** ask the agent to do?
 2. What did the **agent** say it intended to do?
 3. What was the agent **allowed** to access?
-4. What did AgentGuard **observe** the agent actually doing?
+4. What did Periscope **observe** the agent actually doing?
 5. What **result** did the agent produce?
 
 The intended chain is:
@@ -21,7 +21,7 @@ Comparing adjacent links exposes two drift classes:
 - **Request -> Intent drift**: the agent's plan exceeds, contradicts, or misses the human request. Detected *before* execution.
 - **Intent -> Behavior drift**: the agent does something other than what it declared. Detected from independently observed telemetry *after/during* execution.
 
-The layer must never claim that AgentGuard observed something when the evidence is only agent-reported or inferred, and must never claim absence of behavior when the relevant telemetry channel is unavailable.
+The layer must never claim that Periscope observed something when the evidence is only agent-reported or inferred, and must never claim absence of behavior when the relevant telemetry channel is unavailable.
 
 ## Existing Components Being Reused
 

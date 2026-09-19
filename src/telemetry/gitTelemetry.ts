@@ -41,9 +41,9 @@ export async function ensureGitBaseline(repoPath: string): Promise<void> {
 
   await git(repoPath, ["init"]);
   await git(repoPath, ["config", "user.email", "agentguard@example.local"]);
-  await git(repoPath, ["config", "user.name", "AgentGuard"]);
+  await git(repoPath, ["config", "user.name", "Periscope"]);
   await git(repoPath, ["add", "."]);
-  await git(repoPath, ["commit", "-m", "AgentGuard baseline"]);
+  await git(repoPath, ["commit", "-m", "Periscope baseline"]);
 }
 
 export async function snapshotDependencies(repoPath: string): Promise<DependencySnapshot> {

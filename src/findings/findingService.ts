@@ -100,7 +100,7 @@ export class FindingService {
       severity: event.severity ?? "high",
       title: mapping.title,
       description:
-        typeof event.metadata?.message === "string" ? event.metadata.message : "AgentGuard policy detected a violation.",
+        typeof event.metadata?.message === "string" ? event.metadata.message : "Periscope policy detected a violation.",
       file: mapping.fileBased ? event.resource?.replace(/^\/workspace\//, "") : undefined,
       evidence: {
         eventIds: [event.id, ...(typeof event.metadata?.sourceEventId === "string" ? [event.metadata.sourceEventId] : [])],

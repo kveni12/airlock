@@ -36,6 +36,6 @@ export function OverviewDashboard() {
   </Page>;
 }
 
-function Page({ children }: { children: React.ReactNode }) { return <div className="mx-auto max-w-7xl space-y-6"><div><p className="eyebrow">System posture</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] md:text-4xl">Overview</h1><p className="mt-2 text-[#657068]">Live runtime posture from the AgentGuard backend.</p></div>{children}</div>; }
+function Page({ children }: { children: React.ReactNode }) { return <div className="mx-auto max-w-7xl space-y-6"><div><p className="eyebrow">System posture</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] md:text-4xl">Overview</h1><p className="mt-2 text-[#657068]">Live runtime posture from the Periscope backend.</p></div>{children}</div>; }
 function Metric({ icon: Icon, label, value, detail, warn = false }: { icon: typeof Bot; label: string; value: string | number; detail: string; warn?: boolean }) { return <div className={`card p-5 ${warn ? "border-amber-300" : ""}`}><div className="flex justify-between"><div><p className="text-sm text-[#657068]">{label}</p><p className="mt-2 text-3xl font-semibold">{value}</p></div><span className="grid size-9 place-items-center rounded-lg bg-[#e9ede5]"><Icon className="size-4" /></span></div><p className="mt-4 text-xs text-[#657068]">{detail}</p></div>; }
 function Mini({ value, label }: { value: string | number; label: string }) { return <div className="rounded-lg bg-[#e9ede5]/70 p-3"><p className="mono font-semibold">{value}</p><p className="mt-1 text-xs text-[#657068]">{label}</p></div>; }

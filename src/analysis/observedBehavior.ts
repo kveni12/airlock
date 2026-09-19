@@ -2,7 +2,7 @@ import type { AgentEvent, BehaviorSummary, EvidenceVerification, RunRecord } fro
 
 export type CoverageLevel = EvidenceVerification | "unavailable";
 
-/** Per-channel statement of how (and whether) AgentGuard observed each kind of behavior. */
+/** Per-channel statement of how (and whether) Periscope observed each kind of behavior. */
 export interface TelemetryCoverage {
   filesystemWrites: CoverageLevel;
   filesystemReads: CoverageLevel;

@@ -25,7 +25,7 @@ export function ReviewQueue() {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [data, filter, query]);
 
   return <section>
-    <div className="mb-7"><p className="eyebrow">Decision workspace</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Reviews</h1><p className="mt-2 max-w-2xl text-sm text-[#657068]">Reviewer findings, resolutions and human approvals recorded by the AgentGuard backend. Approving here is persisted on the review.</p></div>
+    <div className="mb-7"><p className="eyebrow">Decision workspace</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Reviews</h1><p className="mt-2 max-w-2xl text-sm text-[#657068]">Reviewer findings, resolutions and human approvals recorded by the Periscope backend. Approving here is persisted on the review.</p></div>
     {error && <div className="mb-5"><ErrorBanner message={error} onRetry={refresh} /></div>}
     <div className="mb-5 flex flex-col gap-3 sm:flex-row">
       <label className="relative flex-1"><Search className="absolute left-3 top-3 size-4 text-[#738077]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search task, agent, or run id" className="w-full rounded-lg border bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[#19734a]" /></label>

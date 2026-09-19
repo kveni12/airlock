@@ -39,7 +39,7 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined
     });
   } catch {
-    throw new AgentGuardApiError(`AgentGuard backend is unavailable at ${API_BASE_URL}.`);
+    throw new AgentGuardApiError(`Periscope backend is unavailable at ${API_BASE_URL}.`);
   }
   if (!response.ok) {
     let message = `Backend request failed: ${response.status} ${response.statusText}`;

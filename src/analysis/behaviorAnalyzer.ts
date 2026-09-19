@@ -141,7 +141,7 @@ export class BehaviorAnalyzer {
         type: "tests",
         severity: "medium",
         title: "No test execution observed",
-        description: "The intent included test files, but AgentGuard did not observe a test command.",
+        description: "The intent included test files, but Periscope did not observe a test command.",
         evidence: { declaredResource: intent.expectedFiles.filter((file) => /test/i.test(file)).join(", ") }
       });
     }
