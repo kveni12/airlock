@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f3f5f0;
+  --ink: #111713;
+  --muted: #657068;
+  --card: #fbfcf8;
+  --line: #d6ddd2;
+  --dark: #101913;
+  --acid: #dff869;
+  --green: #19734a;
+  --amber: #9a5a13;
+}
+
+* { box-sizing: border-box; border-color: var(--line); }
+html { background: var(--canvas); }
+body { margin: 0; background: var(--canvas); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+button, input { font: inherit; }
+a { color: inherit; text-decoration: none; }
+::selection { background: var(--acid); color: var(--dark); }
+
+.card { border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.eyebrow { color: var(--green); font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
+.status { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 650; }
+.status-good { border-color: #9bd7b5; background: #effaf3; color: #14623f; }
+.status-warn { border-color: #eac27f; background: #fff8e8; color: #815017; }
+.status-info { border-color: #a9cde1; background: #eff8fc; color: #265d78; }
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.skeleton { animation: pulse 1.3s ease-in-out infinite; background: #e2e7df; border-radius: 8px; }
+@keyframes pulse { 50% { opacity: .52; } }
