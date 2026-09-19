@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, FileCode2, FolderOpen, LayoutList, MessageSquareText, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, FileCode2, FolderOpen, LayoutList, MessageSquareText, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { approveReview, createReview, getEvents, getFiles, getRunDetail, getTimeline, stopRun } from "@/lib/api";
 import type { AgentEvent, AgentIntent, AlignmentStatus, TimelineEntry } from "@/lib/contracts";
 import { buildTree, parseUnifiedDiff, type FileDiff, type TreeNode } from "@/lib/diff";
@@ -10,7 +10,7 @@ import { subscribeToRunEvents } from "@/lib/event-stream";
 import { useResource } from "@/lib/use-resource";
 import { FindingCard } from "./finding-card";
 import { AlignmentTile, BehaviorSection, IntentSection, PermissionsSection, RequestSection, ResultSection, Timeline, actorStyle } from "./run-detail";
-import { ActionButton, AlignmentBadge, ErrorBanner, RunStatusBadge, SeverityBadge, VerificationBadge, formatTime } from "./ui";
+import { ActionButton, AlignmentBadge, ErrorBanner, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatTime } from "./ui";
 
 const ACTIVE = ["pending", "starting", "running", "stopping"];
 
@@ -119,6 +119,7 @@ export function Workbench({ runId }: { runId: string }) {
             <RequestSection request={d.request} analysis={d.requestAnalysis} />
             <IntentSection intent={d.intent} onChanged={refreshAll} />
             <PermissionsSection permissions={d.permissions} />
+            <OutOfScopeSection events={allEvents} onFile={(p) => marks.has(p) && setSelectedFile(p)} />
             <BehaviorSection behavior={d.behaviorSummary} intent={d.intent} />
             <ResultSection result={d.result} detail={d} />
           </>}
@@ -228,4 +229,49 @@ function describe(e: AgentEvent): string | null {
   if (typeof m.tool === "string") return `${m.server ? `${m.server} · ` : ""}${m.tool}`;
   if (m.intent && typeof m.intent === "object") return JSON.stringify(m.intent, null, 2);
   return null;
+}
+
+interface OutOfScopeItem {
+  key: string;
+  what: string;
+  resource?: string;
+  outcome: "blocked" | "flagged";
+  event: AgentEvent;
+}
+
+/** Attempts outside the declared access scope: blocked network destinations and policy violations. Derived from events only — never from absence. */
+function outOfScopeItems(events: AgentEvent[]): OutOfScopeItem[] {
+  const items: OutOfScopeItem[] = [];
+  const violated = new Set<string>();
+  for (const e of events) {
+    if (e.category !== "policy" || e.action !== "violation") continue;
+    const m = e.metadata ?? {};
+    const rule = typeof m.rule === "string" ? m.rule : "";
+    const source = typeof m.sourceEventId === "string" ? m.sourceEventId : "";
+    if (rule === "permission_scope") { violated.add(source); items.push({ key: e.id, what: "Changed a file outside the allowed folders", resource: e.resource, outcome: "flagged", event: e }); }
+    else if (rule === "network_scope") { violated.add(source); items.push({ key: e.id, what: "Tried to reach a host not on the internet allowlist", resource: e.resource, outcome: "blocked", event: e }); }
+  }
+  for (const e of events) {
+    if (e.category === "network" && e.allowed === false && !violated.has(e.id)) items.push({ key: e.id, what: "Tried to reach a host not on the internet allowlist", resource: e.resource, outcome: "blocked", event: e });
+  }
+  return items.sort((a, b) => a.event.timestamp.localeCompare(b.event.timestamp));
+}
+
+function OutOfScopeSection({ events, onFile }: { events: AgentEvent[]; onFile: (path: string) => void }) {
+  const items = useMemo(() => outOfScopeItems(events), [events]);
+  return <Section eyebrow="3b · Out of scope" title="Asked for more than allowed" action={items.length ? <span className="status status-warn"><ShieldAlert className="mr-1 size-3.5" />{items.length}</span> : <span className="status status-good">none observed</span>}>
+    {items.length === 0 ? <p className="text-sm text-[#657068]">No blocked network requests or out-of-scope file changes were observed. Reads inside the workspace and direct (non-proxy) sockets cannot be observed, so this is not proof of absence.</p>
+      : <ul className="space-y-2">{items.map((item) => {
+        const path = item.resource?.replace(/^\/workspace\//, "");
+        return <li key={item.key} className="rounded-lg border bg-white px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`status ${item.outcome === "blocked" ? "status-bad" : "status-warn"}`}>{item.outcome === "blocked" ? "blocked" : "happened · flagged"}</span>
+            <span>{item.what}</span>
+            <VerificationBadge verification={item.event.verification} />
+            <span className="mono text-xs text-[#9ca99d]">{formatTime(item.event.timestamp)}</span>
+          </div>
+          {item.resource && <p className="mono mt-1 text-xs">{item.outcome === "flagged" && path ? <button onClick={() => onFile(path)} className="underline decoration-dotted">{path}</button> : item.resource}</p>}
+        </li>;
+      })}</ul>}
+  </Section>;
 }
