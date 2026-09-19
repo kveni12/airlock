@@ -49,6 +49,7 @@ export class BehaviorAnalyzer {
           severity: "medium",
           title: "Unexpected dependency added",
           description: `The builder added '${name}' outside the declared dependency plan.`,
+          file: run.gitSummary?.dependencyChanges.find((change) => normalizeDependency(change.name) === name)?.manifest,
           evidence: {
             eventIds: dependency.eventIds,
             observedResource: name,
