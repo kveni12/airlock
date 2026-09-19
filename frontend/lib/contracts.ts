@@ -127,8 +127,21 @@ export interface HumanRequest {
   rawPrompt: string;
   explicitConstraints?: string[];
   requestedObjectives?: string[];
+  analysisMode?: "rules" | "manual";
   context?: { attachments?: string[]; metadata?: Record<string, unknown> };
   createdAt: string;
+}
+
+export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";
+
+export interface RequestAnalyzerRules {
+  revision: number;
+  updatedAt: string;
+  prohibitionPatterns: string[];
+  hedgePatterns: Array<{ pattern: string; label: string }>;
+  imperativeVerbs: string[];
+  resourceLexicon: Record<LexiconCategory, string[]>;
+  inferredExpectations: Array<{ when: string; text: string }>;
 }
 
 export interface RequestStatement {
@@ -155,6 +168,7 @@ export interface RequestAnalysis {
   explicitlyForbiddenResources: RequestResource[];
   ambiguities: string[];
   analyzer: "deterministic";
+  rulesRevision?: number;
   createdAt: string;
 }
 

@@ -63,12 +63,12 @@ describe("editable request rules", () => {
       taskId: "t",
       rawPrompt: "Fix the login bug and add a test. Do not touch the database.",
       analysisMode: "manual",
-      requestedObjectives: ["Fix the login bug"],
+      requestedObjectives: ["Fix the login bug", "Add a login regression test"],
       explicitConstraints: ["Do not touch the database", "Keep the API stable"]
     });
     expect(request.rawPrompt).toBe("Fix the login bug and add a test. Do not touch the database.");
-    expect(analysis.objectives.map((o) => [o.text, o.source])).toEqual([["Fix the login bug", "caller"]]);
-    expect(analysis.explicitConstraints.map((c) => c.text)).toEqual(["Do not touch the database", "Keep the API stable"]);
+    expect(analysis.objectives.map((o) => [o.text, o.source])).toEqual([["Fix the login bug", "prompt"], ["Add a login regression test", "caller"]]);
+    expect(analysis.explicitConstraints.map((c) => [c.text, c.source])).toEqual([["Do not touch the database", "prompt"], ["Keep the API stable", "caller"]]);
     expect(analysis.explicitlyForbiddenResources.map((r) => r.resource)).toContain("database");
   });
 

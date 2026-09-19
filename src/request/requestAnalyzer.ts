@@ -76,28 +76,36 @@ export class RequestAnalyzer {
     const explicitConstraints: RequestStatement[] = [];
     const ambiguities: string[] = [];
 
+    const extractedObjectives: RequestStatement[] = [];
+    const extractedConstraints: RequestStatement[] = [];
+
     for (const sentence of sentences) {
-      if (manual) {
-        for (const hedge of compiled.hedges) {
-          if (hedge.pattern.test(sentence)) ambiguities.push(`${hedge.label}: "${sentence}"`);
-        }
-      } else if (isProhibition(sentence, compiled)) {
-        explicitConstraints.push({ text: normalizeConstraint(sentence), provenance: "explicit", source: "prompt", excerpt: sentence });
+      if (isProhibition(sentence, compiled)) {
+        extractedConstraints.push({ text: normalizeConstraint(sentence), provenance: "explicit", source: "prompt", excerpt: sentence });
       } else {
         for (const part of splitCompoundObjective(sentence, compiled)) {
-          objectives.push({ text: stripTerminalPunctuation(part), provenance: "explicit", source: "prompt", excerpt: sentence });
+          extractedObjectives.push({ text: stripTerminalPunctuation(part), provenance: "explicit", source: "prompt", excerpt: sentence });
         }
-        for (const hedge of compiled.hedges) {
-          if (hedge.pattern.test(sentence)) ambiguities.push(`${hedge.label}: "${sentence}"`);
-        }
+      }
+      for (const hedge of compiled.hedges) {
+        if (hedge.pattern.test(sentence)) ambiguities.push(`${hedge.label}: "${sentence}"`);
       }
     }
 
+    // In manual mode the human-edited lists replace the extraction; items that still match
+    // an extracted statement keep their prompt provenance so only real edits show as caller-supplied.
+    const fromCaller = (text: string, extracted: RequestStatement[]): RequestStatement =>
+      extracted.find((s) => s.text.toLowerCase() === text.toLowerCase()) ?? { text, provenance: "explicit", source: "caller" };
+
+    if (!manual) {
+      objectives.push(...extractedObjectives);
+      explicitConstraints.push(...extractedConstraints);
+    }
     for (const objective of request.requestedObjectives ?? []) {
-      if (objective.trim()) objectives.push({ text: objective.trim(), provenance: "explicit", source: "caller" });
+      if (objective.trim()) objectives.push(manual ? fromCaller(objective.trim(), extractedObjectives) : { text: objective.trim(), provenance: "explicit", source: "caller" });
     }
     for (const constraint of request.explicitConstraints ?? []) {
-      if (constraint.trim()) explicitConstraints.push({ text: constraint.trim(), provenance: "explicit", source: "caller" });
+      if (constraint.trim()) explicitConstraints.push(manual ? fromCaller(constraint.trim(), extractedConstraints) : { text: constraint.trim(), provenance: "explicit", source: "caller" });
     }
 
     if (!objectives.length) ambiguities.push("no explicit objective could be identified in the request");
