@@ -181,10 +181,10 @@ function matches(declared: Set<string>, observed: string): boolean {
 
 function ObservedList<T extends ObservedItem>({ items, flag, suffix }: { items: T[]; flag?: (item: T) => boolean; suffix?: (item: T) => string | undefined }) {
   if (!items.length) return <span className="text-sm text-[#657068]">none observed</span>;
-  return <ul className="space-y-1">{items.map((item) => {
+  return <ul className="space-y-1">{items.map((item, index) => {
     const undeclared = flag?.(item) ?? false;
     const extra = suffix?.(item);
-    return <li key={item.name} className="flex flex-wrap items-center gap-2 text-sm"><span className={undeclared ? "text-[#815017]" : "text-[#14623f]"}>{undeclared ? "⚠" : "✓"}</span><span className="mono">{item.name}</span>{extra && <span className="text-xs text-[#657068]">{extra}</span>}{undeclared && <span className="status status-warn">undeclared</span>}<VerificationBadge verification={item.verification} /><span className="text-xs text-[#9ca99d]">{item.eventIds.length} event{item.eventIds.length === 1 ? "" : "s"}</span></li>;
+    return <li key={`${item.name}-${item.eventIds[0] ?? index}`} className="flex flex-wrap items-center gap-2 text-sm"><span className={undeclared ? "text-[#815017]" : "text-[#14623f]"}>{undeclared ? "⚠" : "✓"}</span><span className="mono">{item.name}</span>{extra && <span className="text-xs text-[#657068]">{extra}</span>}{undeclared && <span className="status status-warn">undeclared</span>}<VerificationBadge verification={item.verification} /><span className="text-xs text-[#9ca99d]">{item.eventIds.length} event{item.eventIds.length === 1 ? "" : "s"}</span></li>;
   })}</ul>;
 }
 
