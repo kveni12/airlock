@@ -6,6 +6,7 @@ import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
@@ -499,11 +500,9 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
   if (!repo?.path) throw new Error("repo.path is required for planner generation");
   if (!agent && !command?.length) throw new Error("agent or command is required for planner generation");
   const instruction = [
-    "Analyze the task without modifying the repository; the workspace is mounted read-only and any write will fail the planning run.",
-    "Emit exactly one AGENTGUARD_EVENT line with category agent, action intent, and metadata.intent.",
-    "The intent object must include goal, interpretation, plannedActions, expectedFiles, expectedDependencies, expectedCommands, expectedNetwork, expectedMcpServers, expectedSecrets, expectedTools, constraints, and optionally assumptions.",
+    PLANNER_OUTPUT_INSTRUCTION,
     rawPrompt ? `Human request: ${rawPrompt}` : typeof body.goal === "string" ? `Task: ${body.goal}` : ""
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join("\n\n");
   return {
     taskId,
     agentId,
@@ -520,21 +519,3 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
   };
 }
 
-function extractGeneratedIntent(eventList: Awaited<ReturnType<JsonStore["getEvents"]>>): unknown {
-  for (const event of [...eventList].reverse()) {
-    if (event.category === "agent" && event.action === "intent" && event.metadata?.intent) return event.metadata.intent;
-    if (event.category === "agent" && event.action === "message" && typeof event.metadata?.text === "string") {
-      const marker = "AGENTGUARD_EVENT ";
-      const index = event.metadata.text.indexOf(marker);
-      if (index >= 0) {
-        try {
-          const parsed = JSON.parse(event.metadata.text.slice(index + marker.length).trim()) as { metadata?: { intent?: unknown } };
-          if (parsed.metadata?.intent) return parsed.metadata.intent;
-        } catch {
-          continue;
-        }
-      }
-    }
-  }
-  return undefined;
-}
