@@ -13,6 +13,15 @@ This repository implements the backend workflow for:
 - Lima 2+ (`brew install lima` on macOS)
 - macOS 13+ for the native Virtualization.framework (`vz`) runtime
 
+## Quickstart (backend + UI)
+
+```bash
+npm install
+npm run dev:all
+```
+
+Then open `http://localhost:3001`. `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
+
 ## Install
 
 ```bash
