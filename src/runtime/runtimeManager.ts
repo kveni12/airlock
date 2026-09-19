@@ -123,7 +123,8 @@ export class RuntimeManager {
       requestId: request.requestId,
       workspaceAccess: request.purpose === "planner" ? "read_only" : "read_write",
       purpose: request.purpose ?? "builder",
-      parentRunId: request.parentRunId
+      parentRunId: request.parentRunId,
+      projectId: request.projectId
     };
 
     await this.store.createRun(run, permissions);

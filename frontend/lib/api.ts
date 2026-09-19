@@ -12,6 +12,8 @@ import type {
   GenerateIntentBody,
   HumanRequest,
   PermissionSnapshot,
+  Project,
+  ProjectInput,
   PublicUser,
   RequestAnalysis,
   RequestAnalyzerRules,
@@ -32,7 +34,7 @@ export class AgentGuardApiError extends Error {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT"; body?: unknown }): Promise<T> {
+async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT" | "DELETE"; body?: unknown }): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -56,6 +58,7 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
     }
     throw new AgentGuardApiError(message, response.status);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -151,6 +154,32 @@ export function createRequest(body: { taskId: string; rawPrompt: string; explici
 
 export function previewRequest(rawPrompt: string, rules?: RequestAnalyzerRules) {
   return post<RequestAnalysis>("/api/requests/preview", { rawPrompt, rules });
+}
+
+// ---- projects ----
+
+export function getProjects(signal?: AbortSignal) {
+  return request<Project[]>("/api/projects", signal);
+}
+
+export function getProject(id: string, signal?: AbortSignal) {
+  return request<Project>(`/api/projects/${enc(id)}`, signal);
+}
+
+export function createProject(input: ProjectInput) {
+  return post<Project>("/api/projects", input);
+}
+
+export function updateProject(id: string, input: ProjectInput) {
+  return request<Project>(`/api/projects/${enc(id)}`, undefined, { method: "PUT", body: input });
+}
+
+export function openProject(id: string) {
+  return post<Project>(`/api/projects/${enc(id)}/open`);
+}
+
+export function deleteProject(id: string) {
+  return request<void>(`/api/projects/${enc(id)}`, undefined, { method: "DELETE" });
 }
 
 export function getRequestRules(signal?: AbortSignal) {

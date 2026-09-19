@@ -83,7 +83,35 @@ export interface CreateRunRequest {
   requestId?: string;
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
 }
+
+/** A repo plus the saved sandbox settings New request starts from when the project is opened. */
+export interface Project {
+  id: string;
+  name: string;
+  repoPath: string;
+  branch?: string;
+  /** Agent adapter kind (`claude_code`, `codex`, ...); undefined = shell command. */
+  agentKind?: string;
+  runtime: RuntimeProviderKind;
+  scope: ProjectScope;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+export interface ProjectScope {
+  /** Paths relative to the repo ("/workspace" = whole repo) with the access the builder gets. */
+  folders: FilePermission[];
+  hosts: string[];
+  secrets: string[];
+  mcpServers: string[];
+  tools: string[];
+}
+
+export type ProjectInput = Omit<Project, "id" | "createdAt" | "updatedAt" | "lastOpenedAt">;
 
 export interface AgentIntentDraft {
   goal: string;
@@ -235,6 +263,7 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
 }
 
 export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
@@ -531,6 +560,7 @@ export interface StoredData {
   reviews: Review[];
   resolutions: ResolutionAttempt[];
   requestRules?: RequestAnalyzerRules;
+  projects?: Project[];
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &

@@ -9,6 +9,7 @@ import type {
   GitSummary,
   HumanRequest,
   PermissionSnapshot,
+  Project,
   RequestAnalysis,
   RequestAnalyzerRules,
   ResolutionAttempt,
@@ -154,6 +155,41 @@ export class JsonStore {
     await this.update((data) => {
       data.requestRules = rules;
     });
+  }
+
+  async listProjects(): Promise<Project[]> {
+    return (await this.read()).projects ?? [];
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    return ((await this.read()).projects ?? []).find((project) => project.id === id);
+  }
+
+  async createProject(project: Project): Promise<void> {
+    await this.update((data) => {
+      data.projects = [...(data.projects ?? []), project];
+    });
+  }
+
+  async updateProject(id: string, patch: Partial<Project>): Promise<Project | undefined> {
+    let updated: Project | undefined;
+    await this.update((data) => {
+      const project = (data.projects ?? []).find((item) => item.id === id);
+      if (!project) return;
+      Object.assign(project, patch);
+      updated = project;
+    });
+    return updated;
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    let removed = false;
+    await this.update((data) => {
+      const before = data.projects?.length ?? 0;
+      data.projects = (data.projects ?? []).filter((project) => project.id !== id);
+      removed = data.projects.length !== before;
+    });
+    return removed;
   }
 
   async createIntent(intent: AgentIntent): Promise<void> {
@@ -344,7 +380,8 @@ function normalizeStoredData(data: Partial<StoredData>): StoredData {
     findings: data.findings ?? [],
     reviews: (data.reviews ?? []).map((review) => ({ ...review, findingIds: review.findingIds ?? [] })),
     resolutions: data.resolutions ?? [],
-    requestRules: data.requestRules
+    requestRules: data.requestRules,
+    projects: data.projects ?? []
   };
 }
 
