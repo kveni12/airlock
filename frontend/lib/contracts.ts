@@ -129,6 +129,22 @@ export interface RepoTreeListing {
   entries: RepoTreeEntry[];
 }
 
+export interface RuntimeStatus {
+  docker: { available: boolean; image: string; imagePresent: boolean; detail?: string };
+  lima: { available: boolean; baseVm: string; baseVmPresent: boolean; agentVms: Record<string, { vm: string; present: boolean }>; detail?: string };
+  process: { available: true; sandboxed: false };
+}
+
+export interface RuntimeSetupJob {
+  id: string;
+  target: { provider: "docker" } | { provider: "lima"; agent?: string };
+  status: "running" | "succeeded" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  exitCode?: number | null;
+  log: string[];
+}
+
 export type AlignmentStatus = "aligned" | "warning" | "conflict";
 export type RequestProvenance = "explicit" | "inferred";
 

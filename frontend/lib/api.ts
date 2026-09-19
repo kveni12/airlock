@@ -12,6 +12,8 @@ import type {
   HumanRequest,
   PermissionSnapshot,
   RepoTreeListing,
+  RuntimeSetupJob,
+  RuntimeStatus,
   RequestAnalysis,
   ResolutionAttempt,
   Review,
@@ -150,6 +152,18 @@ export function getIntentAlignment(id: string, signal?: AbortSignal) {
 
 export function getRepoTree(repoPath: string, dir = "", signal?: AbortSignal) {
   return request<RepoTreeListing>(`/api/repo-tree?path=${enc(repoPath)}&dir=${enc(dir)}`, signal);
+}
+
+export function getRuntimeStatus(signal?: AbortSignal) {
+  return request<RuntimeStatus>("/api/runtime/status", signal);
+}
+
+export function startRuntimeSetup(target: { provider: "docker" } | { provider: "lima"; agent?: string }) {
+  return post<RuntimeSetupJob>("/api/runtime/setup", target);
+}
+
+export function getRuntimeSetupJob(id: string, signal?: AbortSignal) {
+  return request<RuntimeSetupJob>(`/api/runtime/setup/${enc(id)}`, signal);
 }
 
 export function checkIntentAccess(id: string, permissions: PermissionSnapshot) {

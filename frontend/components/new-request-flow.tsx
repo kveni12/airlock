@@ -9,6 +9,7 @@ import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentPr
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, DEFAULT_SCOPE, scopeToPermissions, setFolderAccess, summarizeScope, type AccessScope } from "./access-scope";
 import { FindingCard } from "./finding-card";
+import { RuntimeStatusPanel } from "./runtime-status";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
 const DEMO_PROMPT = "Fix the login/session bug and add a regression test.\nDo not modify database or infrastructure configuration.\nDo not add external dependencies.";
@@ -45,7 +46,7 @@ export function NewRequestFlow() {
   const [repoPath, setRepoPath] = useState("fixtures/intent-demo-repo");
   const [provider, setProvider] = useState<RuntimeProviderKind>("process");
   const [builderAgentId, setBuilderAgentId] = useState("demo-builder");
-  const [builderCommand, setBuilderCommand] = useState("sh runtime/intent-demo-builder.sh");
+  const [builderCommand, setBuilderCommand] = useState("agentguard-intent-demo-builder");
   const [agentChoice, setAgentChoice] = useState<AgentChoice>("script");
   const [agentBinary, setAgentBinary] = useState("");
   const [scope, setScope] = useState<AccessScope>(DEFAULT_SCOPE);
@@ -67,7 +68,7 @@ export function NewRequestFlow() {
 
   const agentConfig = (prompt?: string): AgentProfileConfig | undefined =>
     usingRealAgent ? { kind: agentChoice, ...(agentBinary.trim() ? { binary: agentBinary.trim() } : {}), ...(prompt ? { prompt } : {}) } : undefined;
-  const [plannerCommand, setPlannerCommand] = useState("sh runtime/intent-demo-planner.sh");
+  const [plannerCommand, setPlannerCommand] = useState("agentguard-intent-demo-planner");
   const [intentJson, setIntentJson] = useState(JSON.stringify(DEMO_INTENT, null, 2));
   const [intent, setIntent] = useState<AgentIntent | null>(null);
   const [alignment, setAlignment] = useState<IntentAlignmentResponse | null>(null);
@@ -165,14 +166,15 @@ export function NewRequestFlow() {
       <label className="block text-sm"><span className={labelCls}>Runtime provider</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
           <option value="process">process — no isolation, runs on this machine on a temp copy</option>
-          <option value="lima">lima — disposable VM (macOS/Linux, needs npm run vm:setup)</option>
-          <option value="docker">docker — container</option>
+          <option value="docker">docker — disposable container (image built automatically)</option>
+          <option value="lima">lima — disposable VM (strongest isolation; macOS/Linux)</option>
         </select>
       </label>
       {usingRealAgent && <label className="block text-sm"><span className={labelCls}>Agent binary (optional override)</span><input value={agentBinary} onChange={(e) => setAgentBinary(e.target.value)} placeholder={selectedProfile ? `default: ${agentChoice === "claude_code" ? "claude" : agentChoice === "cursor" ? "agent" : agentChoice}` : ""} className={inputCls} /></label>}
     </div>
     {agentChoice === "devin" && <p className="text-xs text-[#657068]">Devin works in its own cloud VM, so Periscope cannot observe it directly. The bridge starts a Devin session via the API (needs <span className="mono">DEVIN_API_KEY</span>); the planner returns structured intent, the builder pushes its work to branch <span className="mono">agentguard/&lt;run id&gt;</span> of the repo&apos;s <span className="mono">origin</span> (Devin needs push access), which is then applied to the workspace and diffed. Devin&apos;s messages are agent-reported evidence.</p>}
-    {usingRealAgent && selectedProfile && <p className="text-xs text-[#657068]">{selectedProfile.description} {provider === "lima" && !selectedProfile.runtimeReady && <span className="text-[#9a3d31]">Lima base VM <span className="mono">{selectedProfile.defaultBaseVm}</span> not found — run <span className="mono">npm run vm:setup-agent -- {agentChoice}</span> or switch runtime.</span>}</p>}
+    <RuntimeStatusPanel provider={provider} agentKind={usingRealAgent ? agentChoice : undefined} />
+    {usingRealAgent && selectedProfile && <p className="text-xs text-[#657068]">{selectedProfile.description}</p>}
     {provider === "process" && <p className="text-xs text-[#815017]">process runtime has no sandbox: the agent executes directly on the backend host against a temporary copy of the repo. Your original checkout is not mounted, but network, secrets and the rest of the machine are reachable.</p>}
   </div>;
 
