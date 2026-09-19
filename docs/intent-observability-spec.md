@@ -301,3 +301,73 @@ Modified:
 - LLM-based semantic request/intent comparison (deterministic only in this phase).
 - Merging approved results into the developer checkout.
 - Any numerical trust/risk score.
+
+## Implementation Notes
+
+Reconciliation of the shipped code against the design above.
+
+### What was implemented
+
+- **Immutable human request** (`HumanRequest`, `RequestService`): raw prompt persisted verbatim, frozen in memory, never overwritten. `runId` is attached later (`attachToRun`) and the store refuses to change any other field.
+- **Deterministic `RequestAnalyzer`**: explicit objectives/constraints, explicitly requested/forbidden resources (lexicon), inferred expectations tagged `inferred`, ambiguities. Omission is never converted into prohibition.
+- **Extended `AgentIntent`** (backward compatible): `interpretation`, `plannedActions` (alias of `plannedChanges`), `expectedCommands`, `expectedTools`, `assumptions`, `requestId`, `planningRunId`, `alignment`, `approval`, `supersedes/supersededBy`. Persisted Phase 2 intents are normalized on read.
+- **Read-only planning phase**: planner runs carry `workspaceAccess: "read_only"`; Lima mounts omit `:w`, Docker binds `:ro`; the host copy is Git-diffed afterwards and any change emits `runtime.planning_workspace_modified` (high) and fails the planner run. Missing or malformed planner output emits `runtime.intent_generation_failed` and returns 422.
+- **`RequestIntentAnalyzer`** + `IntentAlignmentService`: pre-execution findings with `source: "request_intent_comparison"` and no `runId`; `conflict` blocks `POST /api/runs` until `approve`; `reject` cancels; `revise` supersedes. Findings are attached to the builder run when it is created.
+- **`IntentBehaviorAnalyzer`** wrapping the unchanged `BehaviorAnalyzer`: adds undeclared command/tool findings, missing expected file/command/MCP findings (`missing_action`, `inferred`), and stamps every finding with `evidence.verification`, `requestId`, `intentId`.
+- **`ObservedBehavior` + `TelemetryCoverage`** (`src/analysis/observedBehavior.ts`): filesystem reads, direct socket traffic and secret access are reported as `unavailable`, never as empty lists.
+- **`RunInsightService`**: `AlignmentSummary`, `ResultSummary`, `TimelineEntry[]`, and the composed `RunDetail`. Derived read models only; nothing new is persisted.
+- **`process` runtime provider** (`src/runtime/processProvider.ts`): opt-in, unsandboxed child-process execution so the full telemetry/finding/review/resolution pipeline runs on hosts without Lima or Docker (demo + CI). It provides no isolation and must be selected explicitly.
+- **Deterministic demo** `npm run demo:intent` (`scripts/run-intent-demo.ts`): drives the real HTTP routes in-process through request → planner → alignment → builder → findings → review → two resolutions → re-review → approval.
+
+### Files changed
+
+New: `src/request/requestAnalyzer.ts`, `src/request/requestService.ts`, `src/analysis/requestIntentAnalyzer.ts`, `src/analysis/intentBehaviorAnalyzer.ts`, `src/analysis/observedBehavior.ts`, `src/intent/intentAlignmentService.ts`, `src/dashboard/runInsightService.ts`, `src/runtime/processProvider.ts`, `scripts/run-intent-demo.ts`, `runtime/intent-demo-planner.sh`, `runtime/intent-demo-builder.sh`, `fixtures/intent-demo-repo/**`, `vitest.config.ts`.
+
+Modified: `src/types.ts`, `src/store/jsonStore.ts` (request/analysis tables, atomic writes), `src/intent/intentService.ts`, `src/analysis/behaviorAnalyzer.ts` (pluggable analyzer, dependency findings carry the manifest as `file`), `src/resolution/resolutionService.ts` (guards for run-less findings), `src/runtime/runtimeManager.ts`, `src/runtime/limaProvider.ts`, `src/runtime/dockerProvider.ts`, `src/runtime/sandboxProvider.ts`, `src/policy/policyEngine.ts` (`/workspace`-rooted permission covers all workspace paths), `src/app.ts`, `runtime/Dockerfile`, `scripts/setup-vm-runtime.sh`, `package.json`.
+
+### APIs added / changed
+
+Added: `POST /api/requests`, `GET /api/requests/:id`, `GET /api/requests/:id/analysis`, `GET /api/runs/:id/request`, `GET /api/intents/:id/alignment`, `POST /api/intents/:id/analyze`, `POST /api/intents/:id/approve`, `POST /api/intents/:id/reject`, `POST /api/intents/:id/revise`, `GET /api/runs/:id/alignment`, `GET /api/runs/:id/behavior`, `GET /api/runs/:id/result`, `GET /api/runs/:id/timeline`, `GET /api/runs/:id/detail`.
+
+Changed: `POST /api/intents` and `POST /api/intents/generate` accept `requestId` and return the intent with `alignment`; `POST /api/runs` accepts `requestId`, rejects blocked intents, and attaches request/intent/pre-execution findings to the run; `runtime.provider` accepts `process`.
+
+### Tests added
+
+`tests/requestAnalyzer.test.ts`, `tests/requestService.test.ts`, `tests/requestIntentAnalyzer.test.ts`, `tests/intentService.test.ts` (extended), `tests/intentBehaviorAnalyzer.test.ts`, `tests/runInsightService.test.ts`, `tests/policyEngine.test.ts` (extended), and `tests/intentObservability.e2e.test.ts`, which exercises the full lifecycle on the `process` runtime and is not skipped in CI. Suite: 19 files / 64 tests pass; the 4 Lima/Docker/agent integration files remain opt-in.
+
+### Deviations from the original spec
+
+- No `governance` event category was added. Request/intent lifecycle steps are represented by the persisted request, analysis and intent records themselves, and the timeline synthesizes `human.request`, `request.analysis`, `agent.intent`, `intent.analysis`, `intent.approval` entries from those records. This avoided touching `EventCollector`/redaction for non-telemetry data.
+- Blocked run creation returns 400 with the block reason (the existing error path), not 409.
+- `src/dashboard/alignmentService.ts` became `src/dashboard/runInsightService.ts` (alignment, result, timeline and detail share one read-model service).
+- The demo is a TypeScript driver using Fastify `inject` (no running server or `jq` needed) rather than `scripts/run-intent-demo.sh`; planner and builder are two scripts instead of one `intent-demo-agent.sh`.
+- A `process` runtime provider was added (not in the original plan) so the demo and the e2e test can run where Lima/Docker are unavailable. Read-only planning under `process` is enforced only by the post-run Git check, not by a mount.
+- `tests/intent.integration.test.ts` (sandboxed variant) was not written; the e2e test covers the same flow on the `process` provider and the sandboxed demo agents are installed by `runtime/Dockerfile` / `scripts/setup-vm-runtime.sh`.
+- Absence-of-evidence findings are emitted whenever the relevant channel is not `unavailable`; the "expected command not observed" check relies on `process.*` or agent-reported shell events, so it is `inferred` even when agent-reported events exist.
+
+### Evidence classification
+
+Independently observed (`independent`): filesystem writes/creates/deletes (host watcher), Git changed files, diff stats, commits, dependency manifest changes, proxy-routed HTTP(S) destinations, agent process start/exit and exit code, the raw human request text and the declared intent text as records.
+
+Agent-reported (`agent_reported`): shell commands, tool calls, tool results, MCP calls, test pass/fail claims, and any `AGENTGUARD_EVENT`/JSONL content. The `agent.intent` timeline entry is agent-reported.
+
+Inferred (`inferred`): request analysis, request↔intent alignment findings other than explicit constraint violations, policy violations, review status, and every `missing_action` finding.
+
+Not observable today (`unavailable`): filesystem reads, direct socket traffic that bypasses the proxy, secret reads inside the sandbox, and the identity of individual processes spawned by the agent (only the top-level process is independently tracked).
+
+### Remaining limitations
+
+- Request analysis and request↔intent comparison are lexicon-based; paraphrased or domain-specific constraints (e.g. "leave the schema alone") are not recognised and are reported as a limitation, not silently passed.
+- `undeclaredTools` counts `permission`-type findings; tool identity is agent-reported only.
+- Intent→behavior status stays `conflict` after resolution (the drift did occur); resolution is reflected in `behaviorToResult` and in the segment detail.
+- Resolution reverts whole files; a manifest revert also drops any legitimately declared dependency edits in the same file.
+- The `process` provider is unsandboxed and must never be used for untrusted agents.
+- No `lint` script exists in the repository; type checking (`tsc --noEmit`) is the only static check.
+
+### Highest-priority next steps
+
+1. Optional semantic comparison stage (LLM-backed, clearly tagged `inferred`) behind the deterministic analyzer for paraphrased constraints and scope expansion.
+2. Independent shell-command telemetry inside the sandbox (e.g. a bootstrap shell wrapper) so `shellCommands` coverage can become `independent`.
+3. Persist alignment snapshots at decision time so historical dashboards do not depend on recomputation.
+4. Sandboxed integration test (`RUN_INTENT_E2E=1`) mirroring the e2e test on Lima/Docker.
+5. Dashboard UI consuming `/detail`, `/alignment`, `/timeline`.
