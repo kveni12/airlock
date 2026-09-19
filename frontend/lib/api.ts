@@ -4,6 +4,7 @@ import type {
   AgentIntent,
   AgentIntentDraft,
   AgentProfile,
+  AuthStatus,
   CreateRunBody,
   DashboardSnapshot,
   Finding,
@@ -11,6 +12,7 @@ import type {
   GenerateIntentBody,
   HumanRequest,
   PermissionSnapshot,
+  PublicUser,
   RequestAnalysis,
   RequestAnalyzerRules,
   ResolutionAttempt,
@@ -35,6 +37,7 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       cache: "no-store",
+      credentials: "include",
       signal,
       method: init?.method ?? "GET",
       headers: init?.body !== undefined ? { "content-type": "application/json" } : undefined,
@@ -61,6 +64,28 @@ function post<T>(path: string, body: unknown = {}) {
 }
 
 const enc = encodeURIComponent;
+
+// ---- auth ----
+
+export function getAuthStatus(signal?: AbortSignal) {
+  return request<AuthStatus>("/api/auth/status", signal);
+}
+
+export async function getCurrentUser(signal?: AbortSignal): Promise<PublicUser> {
+  return (await request<{ user: PublicUser }>("/api/auth/me", signal)).user;
+}
+
+export async function login(email: string, password: string): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/login", { email, password })).user;
+}
+
+export async function bootstrapAdmin(body: { email: string; password: string; displayName?: string; setupToken: string }): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/bootstrap", body)).user;
+}
+
+export function logout() {
+  return post<{ ok: boolean }>("/api/auth/logout");
+}
 
 export interface IntentAlignmentResponse {
   intentId: string;
@@ -246,7 +271,7 @@ export async function loadDashboardSnapshot(signal?: AbortSignal): Promise<Dashb
 }
 
 export function subscribeToRun(runId: string, onEvent: (event: AgentEvent) => void, onError?: () => void): () => void {
-  const source = new EventSource(`${API_BASE_URL}/api/runs/${enc(runId)}/stream`);
+  const source = new EventSource(`${API_BASE_URL}/api/runs/${enc(runId)}/stream`, { withCredentials: true });
   source.onmessage = (message) => onEvent(JSON.parse(message.data) as AgentEvent);
   const eventNames = ["runtime.started", "runtime.completed", "runtime.failed", "runtime.stopped", "runtime.telemetry_degraded", "process.start", "process.output", "process.exit", "process.command_start", "process.command_result", "filesystem.write", "filesystem.create", "filesystem.delete", "network.request", "secret.access", "mcp.tool_call", "mcp.tool_result", "git.file_changed", "git.diff_generated", "policy.violation", "agent.message", "agent.tool_call", "agent.tool_result"];
   for (const eventName of eventNames) source.addEventListener(eventName, (message) => onEvent(JSON.parse((message as MessageEvent).data) as AgentEvent));

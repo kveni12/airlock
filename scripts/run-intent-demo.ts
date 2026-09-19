@@ -15,6 +15,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import type { FastifyInstance } from "fastify";
 import { createApp } from "../src/app.js";
+import { AuthService } from "../src/auth/authService.js";
 import { JsonStore } from "../src/store/jsonStore.js";
 import type {
   AgentIntent,
@@ -41,10 +42,35 @@ const provider = (process.env.AGENTGUARD_RUNTIME_PROVIDER ?? "process") as "lima
 const plannerCommand = provider === "process" ? [path.join(repoRoot, "runtime/intent-demo-planner.sh")] : ["agentguard-intent-demo-planner"];
 const builderCommand = provider === "process" ? [path.join(repoRoot, "runtime/intent-demo-builder.sh")] : ["agentguard-intent-demo-builder"];
 
+const DEMO_OPERATOR_EMAIL = "demo-operator@periscope.local";
+
+let cookie = "";
+
 async function api<T>(app: FastifyInstance, method: "GET" | "POST", url: string, body?: unknown): Promise<T> {
-  const response = await app.inject({ method, url, payload: body as Record<string, unknown> | undefined });
+  const response = await app.inject({ method, url, payload: body as Record<string, unknown> | undefined, headers: { cookie } });
   if (response.statusCode >= 400) throw new Error(`${method} ${url} -> ${response.statusCode}: ${response.body}`);
   return response.json() as T;
+}
+
+/**
+ * The demo owns its own store, so it creates the administrator it acts as, and deletes it again
+ * afterwards so a seeded store still asks a real human to bootstrap.
+ */
+async function signInDemoOperator(app: FastifyInstance, auth: AuthService): Promise<string> {
+  const credentials = { email: DEMO_OPERATOR_EMAIL, password: "periscope-demo-operator" };
+  const setupToken = await auth.issueSetupToken();
+  const response = setupToken
+    ? await app.inject({ method: "POST", url: "/api/auth/bootstrap", payload: { ...credentials, displayName: "Demo Operator", setupToken } })
+    : await app.inject({ method: "POST", url: "/api/auth/login", payload: credentials });
+  if (response.statusCode >= 400) throw new Error(`Demo sign-in failed: ${response.statusCode} ${response.body}`);
+  const session = response.cookies.find((item) => item.name === "periscope_session");
+  if (!session) throw new Error("Demo sign-in did not return a session cookie");
+  return `${session.name}=${session.value}`;
+}
+
+async function removeDemoOperator(store: JsonStore): Promise<void> {
+  const demoOperator = await store.getUserByEmail(DEMO_OPERATOR_EMAIL);
+  if (demoOperator) await store.deleteUser(demoOperator.id);
 }
 
 async function waitForRun(app: FastifyInstance, runId: string): Promise<RunRecord> {
@@ -77,8 +103,11 @@ function mark(status: string): string {
 
 async function main(): Promise<void> {
   const storePath = process.env.AGENTGUARD_STORE_PATH ?? path.join(await mkdtemp(path.join(os.tmpdir(), "agentguard-intent-demo-")), "store.json");
-  const app = await createApp({ store: new JsonStore(storePath) });
+  const store = new JsonStore(storePath);
+  const auth = new AuthService(store);
+  const app = await createApp({ store, auth });
   await app.ready();
+  cookie = await signInDemoOperator(app, auth);
   const taskId = `intent-demo-${Date.now()}`;
   const runtime = { provider };
   const repo = { path: path.join(repoRoot, "fixtures/intent-demo-repo") };
@@ -188,6 +217,7 @@ async function main(): Promise<void> {
     }
     console.log(`\nStore: ${storePath}`);
   } finally {
+    await removeDemoOperator(store);
     await app.close();
   }
 }

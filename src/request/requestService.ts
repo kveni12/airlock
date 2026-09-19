@@ -11,6 +11,7 @@ export interface HumanRequestDraft {
   requestedObjectives?: string[];
   analysisMode?: HumanRequest["analysisMode"];
   context?: HumanRequest["context"];
+  createdBy?: string;
 }
 
 export class RequestService {
@@ -33,6 +34,7 @@ export class RequestService {
       requestedObjectives: validated.requestedObjectives,
       analysisMode: validated.analysisMode,
       context: validated.context,
+      createdBy: draft.createdBy,
       createdAt: new Date().toISOString()
     });
     const analysis = this.analyzer.analyze(request);

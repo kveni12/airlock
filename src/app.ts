@@ -1,7 +1,9 @@
 import cors from "@fastify/cors";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
+import { AuthService } from "./auth/authService.js";
+import { registerAuth } from "./auth/authRoutes.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
@@ -19,6 +21,7 @@ import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
 
 export interface AppContext {
   store: JsonStore;
+  auth: AuthService;
   events: EventCollector;
   runtime: RuntimeManager;
   requests: RequestService;
@@ -35,6 +38,7 @@ export interface AppContext {
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
   const store = context?.store ?? new JsonStore();
   await store.init();
+  const auth = context?.auth ?? new AuthService(store);
 
   const policy = new PolicyEngine(async (runId) => {
     const [run, permissions] = await Promise.all([store.getRun(runId), store.getPermissions(runId)]);
@@ -76,7 +80,14 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     intent.requestId ? (await intentAlignment.analyze(intent.id)).intent : intent;
 
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true });
+  const allowedOrigins = resolveAllowedOrigins();
+  await app.register(cors, { origin: allowedOrigins, credentials: true });
+  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1" });
+
+  const setupToken = await auth.issueSetupToken();
+  if (setupToken) {
+    app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+  }
 
   app.get("/health", async () => ({ ok: true }));
 
@@ -185,7 +196,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/requests", async (request, reply) => {
     try {
-      const created = await requests.create(validateRequestDraft(request.body));
+      const created = await requests.create({ ...validateRequestDraft(request.body), createdBy: actorFor(request) });
       return reply.code(201).send(created);
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
@@ -363,7 +374,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/intents/:id/approve", async (request, reply) => {
     try {
-      const body = (request.body ?? {}) as { actor?: string; reason?: string };
+      const body = decisionBody(request);
       return await intents.approve((request.params as { id: string }).id, body);
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
@@ -372,8 +383,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/intents/:id/reject", async (request, reply) => {
     try {
-      const body = (request.body ?? {}) as { actor?: string; reason?: string };
-      return await intents.reject((request.params as { id: string }).id, body);
+      return await intents.reject((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -425,7 +435,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/findings/:id/dismiss", async (request, reply) => {
     try {
-      return await findings.dismiss((request.params as { id: string }).id, (request.body ?? {}) as { reason?: string; actor?: string });
+      return await findings.dismiss((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -477,10 +487,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/reviews/:id/approve", async (request, reply) => {
     try {
-      return await reviews.approve(
-        (request.params as { id: string }).id,
-        (request.body ?? {}) as { actor?: string; reason?: string }
-      );
+      return await reviews.approve((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -488,10 +495,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/reviews/:id/reject", async (request, reply) => {
     try {
-      return await reviews.reject(
-        (request.params as { id: string }).id,
-        (request.body ?? {}) as { actor?: string; reason?: string }
-      );
+      return await reviews.reject((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -538,6 +542,22 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The authenticated operator, so a recorded governance decision names a real account rather than a caller-supplied string. */
+function actorFor(request: FastifyRequest): string | undefined {
+  return request.user ? `${request.user.displayName} <${request.user.email}>` : undefined;
+}
+
+function decisionBody(request: FastifyRequest): { actor?: string; reason?: string } {
+  const body = (request.body ?? {}) as { actor?: string; reason?: string };
+  return { reason: body.reason, actor: actorFor(request) ?? body.actor };
+}
+
+function resolveAllowedOrigins(): string[] {
+  const configured = process.env.PERISCOPE_ALLOWED_ORIGINS;
+  if (!configured) return ["http://localhost:3001", "http://127.0.0.1:3001"];
+  return configured.split(",").map((origin) => origin.trim()).filter(Boolean);
 }
 
 function requiredBodyString(value: unknown, name: string): string {

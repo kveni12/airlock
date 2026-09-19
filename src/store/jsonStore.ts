@@ -14,7 +14,8 @@ import type {
   ResolutionAttempt,
   Review,
   RunRecord,
-  StoredData
+  StoredData,
+  User
 } from "../types.js";
 
 export class JsonStore {
@@ -26,6 +27,44 @@ export class JsonStore {
     await mkdir(path.dirname(this.filePath), { recursive: true });
     const data = await this.read();
     await this.write(data);
+  }
+
+  async createUser(user: User): Promise<void> {
+    await this.update((data) => {
+      if (data.users.some((existing) => existing.email === user.email)) {
+        throw new Error(`A user with email ${user.email} already exists`);
+      }
+      data.users.push(user);
+    });
+  }
+
+  async updateUser(userId: string, patch: Partial<User>): Promise<User | undefined> {
+    let updated: User | undefined;
+    await this.update((data) => {
+      const user = data.users.find((item) => item.id === userId);
+      if (!user) return;
+      Object.assign(user, patch);
+      updated = user;
+    });
+    return updated;
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await this.update((data) => {
+      data.users = data.users.filter((user) => user.id !== userId);
+    });
+  }
+
+  async getUser(userId: string): Promise<User | undefined> {
+    return (await this.read()).users.find((user) => user.id === userId);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return (await this.read()).users.find((user) => user.email === email);
+  }
+
+  async listUsers(): Promise<User[]> {
+    return (await this.read()).users;
   }
 
   async createRun(run: RunRecord, permissions: PermissionSnapshot): Promise<void> {
@@ -281,6 +320,7 @@ async function renameWithRetry(source: string, destination: string): Promise<voi
 function emptyStoredData(): StoredData {
   return {
     runs: [],
+    users: [],
     events: [],
     permissions: {},
     requests: [],
@@ -295,6 +335,7 @@ function emptyStoredData(): StoredData {
 function normalizeStoredData(data: Partial<StoredData>): StoredData {
   return {
     runs: data.runs ?? [],
+    users: data.users ?? [],
     events: data.events ?? [],
     permissions: data.permissions ?? {},
     requests: data.requests ?? [],

@@ -10,7 +10,7 @@ const eventNames = [
 ];
 
 export function subscribeToRunEvents(runId: string, onEvent: (event: AgentEvent) => void, onError?: () => void): () => void {
-  const source = new EventSource(`${API_BASE_URL}/api/runs/${encodeURIComponent(runId)}/stream`);
+  const source = new EventSource(`${API_BASE_URL}/api/runs/${encodeURIComponent(runId)}/stream`, { withCredentials: true });
   const receive = (message: MessageEvent) => onEvent(JSON.parse(message.data) as AgentEvent);
   source.onmessage = receive;
   for (const eventName of eventNames) source.addEventListener(eventName, receive as EventListener);
