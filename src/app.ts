@@ -16,6 +16,7 @@ import { ResolutionService, type ResolveFindingRequest } from "./resolution/reso
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
+import { listRepoDirectory } from "./repo/repoTree.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -158,6 +159,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     const permissions = await store.getPermissions(id);
     if (!permissions) return reply.code(404).send({ error: "Run not found" });
     return permissions;
+  });
+
+  app.get("/api/repo-tree", async (request, reply) => {
+    const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
+    if (!repoPath) return reply.code(400).send({ error: "path is required" });
+    try {
+      return await listRepoDirectory(repoPath, dir ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get("/api/runs/:id/files", async (request, reply) => {
