@@ -74,6 +74,22 @@ describe("ReviewService", () => {
     expect(approved.status).toBe("approved");
     expect(approved.approval).toEqual({ actor: "alice", reason: "Reviewed" });
     expect((await harness.events.getEvents("run_review")).some((event) => event.action === "review_approved")).toBe(true);
+    expect(approved.summary).toMatch(/^Approved by alice/);
+    await harness.cleanup();
+  });
+
+  it("persists human rejection, rewrites the summary and blocks later approval", async () => {
+    const harness = await createHarness();
+    const review = await harness.reviews.create("run_review");
+    const rejected = await harness.reviews.reject(review.id, { actor: "alice", reason: "Touches infra" });
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.rejectedAt).toBeDefined();
+    expect(rejected.rejection).toEqual({ actor: "alice", reason: "Touches infra" });
+    expect(rejected.summary).toContain("Rejected by alice");
+    expect(rejected.summary).toContain("Touches infra");
+    expect((await harness.events.getEvents("run_review")).some((event) => event.action === "review_rejected")).toBe(true);
+    await expect(harness.reviews.approve(review.id, { actor: "bob" })).rejects.toThrow("cannot be approved");
+    await expect(harness.reviews.reject(review.id, { actor: "bob" })).rejects.toThrow("cannot be rejected");
     await harness.cleanup();
   });
 });

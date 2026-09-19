@@ -221,6 +221,10 @@ export function approveReview(id: string, body: { actor?: string; reason?: strin
   return post<Review>(`/api/reviews/${enc(id)}/approve`, body);
 }
 
+export function rejectReview(id: string, body: { actor?: string; reason?: string } = {}) {
+  return post<Review>(`/api/reviews/${enc(id)}/reject`, body);
+}
+
 // ---- composed ----
 
 export async function loadDashboardSnapshot(signal?: AbortSignal): Promise<DashboardSnapshot> {

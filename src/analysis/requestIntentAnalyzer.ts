@@ -210,7 +210,7 @@ function intentMentions(category: RequestResourceCategory, intent: AgentIntent):
   return hits;
 }
 
-const FILE_PATTERNS: Partial<Record<RequestResourceCategory, RegExp[]>> = {
+export const FILE_PATTERNS: Partial<Record<RequestResourceCategory, RegExp[]>> = {
   infrastructure: INFRA_FILE_PATTERNS,
   database: DATABASE_FILE_PATTERNS,
   configuration: CONFIG_FILE_PATTERNS,
