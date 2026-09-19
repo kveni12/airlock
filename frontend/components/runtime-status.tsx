@@ -43,7 +43,7 @@ export function RuntimeStatusPanel({ provider, agentKind }: { provider: RuntimeP
 
   if (provider === "process") return null;
   if (status.error) return <p className="text-xs text-[#9a3d31]">Could not check runtime status: {status.error}</p>;
-  if (!s || !readiness) return <p className="text-xs text-[#657068]">Checking runtime…</p>;
+  if (!s || !readiness) return <p className="text-xs text-[#64717c]">Checking runtime…</p>;
 
   const setup = async () => {
     setError(null);
@@ -59,14 +59,14 @@ export function RuntimeStatusPanel({ provider, agentKind }: { provider: RuntimeP
     <div className="flex flex-wrap items-center gap-2">
       {readiness.ready ? <CheckCircle2 className="size-4 text-[#14623f]" /> : <CircleAlert className="size-4 text-[#815017]" />}
       <span className="font-semibold">{readiness.title}</span>
-      <span className="text-[#657068]">{readiness.detail}</span>
+      <span className="text-[#64717c]">{readiness.detail}</span>
       {readiness.action && !running && <button type="button" onClick={setup} className="ml-auto rounded-md bg-[#dff869] px-2.5 py-1 font-semibold text-[#17200f] hover:bg-[#d3ee55]">{readiness.action}</button>}
-      {running && <span className="ml-auto inline-flex items-center gap-1 text-[#657068]"><Loader2 className="size-3.5 animate-spin" /> running on the backend machine…</span>}
+      {running && <span className="ml-auto inline-flex items-center gap-1 text-[#64717c]"><Loader2 className="size-3.5 animate-spin" /> running on the backend machine…</span>}
     </div>
     {error && <p className="mt-1 text-[#9a3d31]">{error}</p>}
     {job && <details open={running} className="mt-2">
-      <summary className="cursor-pointer text-[#657068]">Setup log · {job.status}{job.exitCode != null ? ` (exit ${job.exitCode})` : ""}</summary>
-      <pre className="mono mt-1 max-h-48 overflow-auto rounded bg-[#1b2620] p-2 text-[11px] leading-snug text-[#dfe7e0]">{job.log.slice(-200).join("\n") || "(no output yet)"}</pre>
+      <summary className="cursor-pointer text-[#64717c]">Setup log · {job.status}{job.exitCode != null ? ` (exit ${job.exitCode})` : ""}</summary>
+      <pre className="mono mt-1 max-h-48 overflow-auto rounded bg-[#14212a] p-2 text-[11px] leading-snug text-[#dfe7e0]">{job.log.slice(-200).join("\n") || "(no output yet)"}</pre>
     </details>}
   </div>;
 }

@@ -30,7 +30,10 @@ export class ProcessProvider implements SandboxProvider {
     const proc = handle as ProcessHandle;
     const { run, workspacePath, proxyUrl, environment, onOutput } = proc.options;
     const [command, ...args] = run.command;
-    const child = spawn(command, args, {
+    const runsShellScriptOnWindows = process.platform === "win32" && command.toLowerCase().endsWith(".sh");
+    const executable = runsShellScriptOnWindows ? "bash" : command;
+    const executableArgs = runsShellScriptOnWindows ? [command, ...args] : args;
+    const child = spawn(executable, executableArgs, {
       cwd: workspacePath,
       env: {
         ...process.env,

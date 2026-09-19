@@ -83,8 +83,8 @@ function EnforcementTag({ e }: { e: Enforcement }) {
 }
 
 function TagList({ items, onRemove, empty }: { items: string[]; onRemove: (item: string) => void; empty: string }) {
-  if (!items.length) return <p className="text-sm text-[#657068]">{empty}</p>;
-  return <ul className="flex flex-wrap gap-1.5">{items.map((item) => <li key={item} className="mono inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs"><span>{item}</span><button type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item}`} className="text-[#657068] hover:text-[#9a3d31]"><X className="size-3" /></button></li>)}</ul>;
+  if (!items.length) return <p className="text-sm text-[#64717c]">{empty}</p>;
+  return <ul className="flex flex-wrap gap-1.5">{items.map((item) => <li key={item} className="mono inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs"><span>{item}</span><button type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item}`} className="text-[#64717c] hover:text-[#9a3d31]"><X className="size-3" /></button></li>)}</ul>;
 }
 
 function AddInput({ placeholder, onAdd }: { placeholder: string; onAdd: (value: string) => void }) {
@@ -92,7 +92,7 @@ function AddInput({ placeholder, onAdd }: { placeholder: string; onAdd: (value: 
   const commit = () => { const v = value.trim(); if (v) { onAdd(v); setValue(""); } };
   return <div className="mt-2 flex gap-2">
     <input value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }} placeholder={placeholder} className="mono w-full rounded-lg border bg-white px-3 py-1.5 text-xs" />
-    <button type="button" onClick={commit} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#f1f4ee]">Add</button>
+    <button type="button" onClick={commit} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#f0f2f3]">Add</button>
   </div>;
 }
 
@@ -100,7 +100,7 @@ function AccessToggle({ value, onChange, inherited }: { value: FolderAccess; onC
   const btn = (access: FolderAccess, label: string) => {
     const on = value === access;
     const tone = access === "read_write" ? "bg-[#fbe9c8] text-[#815017] border-[#e6c98f]" : "bg-[#e5efe9] text-[#14623f] border-[#b9d3c4]";
-    return <button type="button" onClick={() => onChange(access)} aria-pressed={on} className={`px-2 py-0.5 text-[11px] font-semibold ${on ? `${tone} ${inherited ? "opacity-70" : ""}` : "bg-white text-[#9ca99d] hover:text-[#1b2620]"}`}>{label}</button>;
+    return <button type="button" onClick={() => onChange(access)} aria-pressed={on} className={`px-2 py-0.5 text-[11px] font-semibold ${on ? `${tone} ${inherited ? "opacity-70" : ""}` : "bg-white text-[#98a4ad] hover:text-[#14212a]"}`}>{label}</button>;
   };
   return <span className="inline-flex overflow-hidden rounded-md border text-xs">{btn("read", "read only")}{btn("read_write", "can change")}</span>;
 }
@@ -120,17 +120,17 @@ function ExplorerRow({ entry, depth, scope, onChange, repoPath }: { entry: RepoT
   }, [open, children, entry, repoPath]);
 
   return <>
-    <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f1f4ee] ${explicit ? "bg-[#f7f9f4]" : ""}`} style={{ paddingLeft: `${depth * 16 + 4}px` }}>
-      {entry.kind === "dir" ? <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#657068]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button> : <span className="inline-block size-3.5" />}
-      {entry.kind === "dir" ? <FolderOpen className="size-3.5 text-[#657068]" /> : <FileCode2 className="size-3.5 text-[#9ca99d]" />}
+    <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f0f2f3] ${explicit ? "bg-[#f6f2ec]" : ""}`} style={{ paddingLeft: `${depth * 16 + 4}px` }}>
+      {entry.kind === "dir" ? <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#64717c]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button> : <span className="inline-block size-3.5" />}
+      {entry.kind === "dir" ? <FolderOpen className="size-3.5 text-[#64717c]" /> : <FileCode2 className="size-3.5 text-[#98a4ad]" />}
       <span className="mono flex-1 truncate">{entry.name}</span>
-      {explicit ? <span title="Set here"><Pencil className="size-3 text-[#657068]" /></span> : <span className="text-[10px] text-[#9ca99d]" title={`Inherited from ${displayFolder(eff.from)}`}>inherits</span>}
+      {explicit ? <span title="Set here"><Pencil className="size-3 text-[#64717c]" /></span> : <span className="text-[10px] text-[#98a4ad]" title={`Inherited from ${displayFolder(eff.from)}`}>inherits</span>}
       <AccessToggle value={eff.access} inherited={!explicit} onChange={(a) => onChange(setFolderAccess(scope, entry.path, a))} />
-      {explicit && <button type="button" onClick={() => onChange({ ...scope, folders: scope.folders.filter((g) => g.path !== normalizeFolder(entry.path)) })} title="Inherit from parent again" className="text-[#657068] hover:text-[#1b2620]"><RotateCcw className="size-3" /></button>}
+      {explicit && <button type="button" onClick={() => onChange({ ...scope, folders: scope.folders.filter((g) => g.path !== normalizeFolder(entry.path)) })} title="Inherit from parent again" className="text-[#64717c] hover:text-[#14212a]"><RotateCcw className="size-3" /></button>}
     </li>
     {open && error && <li className="pl-8 text-xs text-[#9a3d31]">{error}</li>}
     {open && children?.map((c) => <ExplorerRow key={c.path} entry={c} depth={depth + 1} scope={scope} onChange={onChange} repoPath={repoPath} />)}
-    {open && children?.length === 0 && <li className="text-xs text-[#9ca99d]" style={{ paddingLeft: `${depth * 16 + 40}px` }}>empty</li>}
+    {open && children?.length === 0 && <li className="text-xs text-[#98a4ad]" style={{ paddingLeft: `${depth * 16 + 40}px` }}>empty</li>}
   </>;
 }
 
@@ -149,16 +149,16 @@ export function FolderExplorer({ repoPath, scope, onChange }: { repoPath: string
 
   return <div className="mt-2 rounded-lg border bg-white">
     <ul className="max-h-72 overflow-auto p-1">
-      <li className="flex items-center gap-1.5 rounded bg-[#f7f9f4] px-1 py-1 text-sm">
-        <span className="inline-block size-3.5" /><FolderOpen className="size-3.5 text-[#657068]" />
-        <span className="flex-1 truncate font-semibold">whole repo <span className="mono font-normal text-[#657068]">{repoPath}</span></span>
+      <li className="flex items-center gap-1.5 rounded bg-[#f6f2ec] px-1 py-1 text-sm">
+        <span className="inline-block size-3.5" /><FolderOpen className="size-3.5 text-[#64717c]" />
+        <span className="flex-1 truncate font-semibold">whole repo <span className="mono font-normal text-[#64717c]">{repoPath}</span></span>
         <AccessToggle value={root.access} inherited={false} onChange={(a) => onChange(setFolderAccess(scope, "/workspace", a))} />
       </li>
       {error && <li className="px-2 py-1 text-xs text-[#9a3d31]">Could not list this repo path from the backend ({error}). You can still type folders below.</li>}
-      {!error && entries === null && <li className="px-2 py-1 text-xs text-[#9ca99d]">Loading…</li>}
+      {!error && entries === null && <li className="px-2 py-1 text-xs text-[#98a4ad]">Loading…</li>}
       {entries?.map((e) => <ExplorerRow key={e.path} entry={e} depth={1} scope={scope} onChange={onChange} repoPath={repoPath} />)}
     </ul>
-    {overrides.length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-t px-2 py-1.5 text-xs text-[#657068]"><Pencil className="size-3" />Set here:{overrides.map((g) => <span key={g.path} className={`mono rounded px-1.5 py-0.5 ${g.access === "read_write" ? "bg-[#fbe9c8] text-[#815017]" : "bg-[#e5efe9] text-[#14623f]"}`}>{displayFolder(g.path)} · {g.access === "read_write" ? "can change" : "read only"}</span>)}</div>}
+    {overrides.length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-t px-2 py-1.5 text-xs text-[#64717c]"><Pencil className="size-3" />Set here:{overrides.map((g) => <span key={g.path} className={`mono rounded px-1.5 py-0.5 ${g.access === "read_write" ? "bg-[#fbe9c8] text-[#815017]" : "bg-[#e5efe9] text-[#14623f]"}`}>{displayFolder(g.path)} · {g.access === "read_write" ? "can change" : "read only"}</span>)}</div>}
   </div>;
 }
 
@@ -186,15 +186,15 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly, repo
   const head = "flex flex-wrap items-center justify-between gap-2";
   const title = "flex items-center gap-1.5 text-sm font-semibold";
 
-  return <div className="space-y-3 rounded-xl border bg-[#f7f9f4] p-4">
+  return <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
     <div>
       <p className="text-sm font-semibold">What the agent can access</p>
-      <p className="mt-1 text-xs text-[#657068]">Start small. Each label says whether Periscope <em>prevents</em> access outside the scope or can only <em>flag</em> it afterwards.{plannerOnly && " The planner always runs read-only regardless of the folder settings below."}</p>
+      <p className="mt-1 text-xs text-[#64717c]">Start small. Each label says whether Periscope <em>prevents</em> access outside the scope or can only <em>flag</em> it afterwards.{plannerOnly && " The planner always runs read-only regardless of the folder settings below."}</p>
     </div>
 
     <div className={block}>
       <div className={head}><p className={title}><Eye className="size-4" />Folders</p><EnforcementTag e={folderE} /></div>
-      <p className="mt-1 text-xs text-[#657068]">{folderE.detail} Everything starts <strong>read only</strong>; mark the folders the agent may change. Sub-folders inherit from the nearest parent you set.</p>
+      <p className="mt-1 text-xs text-[#64717c]">{folderE.detail} Everything starts <strong>read only</strong>; mark the folders the agent may change. Sub-folders inherit from the nearest parent you set.</p>
       <FolderExplorer repoPath={repoPath} scope={scope} onChange={onChange} />
       <AddInput placeholder="or type a folder to allow changes, e.g. src/auth" onAdd={addFolder} />
       {effectiveAccess(scope, "/workspace").access === "read_write" && <p className="mt-1 text-xs text-[#815017]"><EyeOff className="mr-1 inline size-3" />The whole repo is set to &quot;can change&quot; — that is the widest folder scope. Set it to read only and pick specific folders to actually narrow it.</p>}
@@ -203,13 +203,13 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly, repo
     <div className="grid gap-3 md:grid-cols-2">
       <div className={block}>
         <div className={head}><p className={title}><Globe className="size-4" />Internet</p><EnforcementTag e={NETWORK_ENFORCEMENT} /></div>
-        <p className="mt-1 text-xs text-[#657068]">{scope.hosts.length ? "Only these hosts (and their subdomains) are reachable." : "Off — every outbound request through the proxy is refused."}</p>
+        <p className="mt-1 text-xs text-[#64717c]">{scope.hosts.length ? "Only these hosts (and their subdomains) are reachable." : "Off — every outbound request through the proxy is refused."}</p>
         <div className="mt-2"><TagList items={scope.hosts} onRemove={remove("hosts")} empty="No hosts allowed." /></div>
         <AddInput placeholder="registry.npmjs.org" onAdd={addUnique("hosts")} />
       </div>
       <div className={block}>
         <div className={head}><p className={title}><KeyRound className="size-4" />Secrets</p><EnforcementTag e={SECRET_ENFORCEMENT} /></div>
-        <p className="mt-1 text-xs text-[#657068]">Env var names read from the backend process; values are never stored or shown.</p>
+        <p className="mt-1 text-xs text-[#64717c]">Env var names read from the backend process; values are never stored or shown.</p>
         <div className="mt-2"><TagList items={scope.secrets} onRemove={remove("secrets")} empty="No secrets injected." /></div>
         <AddInput placeholder="ANTHROPIC_API_KEY" onAdd={addUnique("secrets")} />
       </div>

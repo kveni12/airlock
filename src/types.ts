@@ -129,7 +129,7 @@ export interface AgentIntent extends Omit<Required<AgentIntentDraft>, "createdBy
   createdAt: string;
 }
 
-export type AgentKind = "generic" | "codex" | "cursor" | "claude_code" | "devin" | "custom";
+export type AgentKind = "generic" | "codex" | "opencode" | "cursor" | "claude_code" | "devin" | "custom";
 
 export interface AgentProfile {
   kind: AgentKind;

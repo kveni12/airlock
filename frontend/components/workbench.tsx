@@ -60,10 +60,10 @@ export function Workbench({ runId }: { runId: string }) {
     <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-2">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Back runId={runId} />
-        <span className="mono truncate text-xs text-[#657068]">{run.id}</span>
+        <span className="mono truncate text-xs text-[#64717c]">{run.id}</span>
         <RunStatusBadge status={run.status} />
         <span className="status capitalize">{run.purpose ?? "builder"}</span>
-        <span className="mono text-xs text-[#657068]">{run.runtimeProvider}</span>
+        <span className="mono text-xs text-[#64717c]">{run.runtimeProvider}</span>
         {run.workspaceAccess === "read_only" && <span className="status status-muted">read-only</span>}
         {active && <span className="status status-info">live</span>}
       </div>
@@ -71,7 +71,7 @@ export function Workbench({ runId }: { runId: string }) {
         <Chip label="Request → Intent" status={d.alignment.requestToIntent?.status} />
         <Chip label="Intent → Behavior" status={d.alignment.intentToBehavior?.status} />
         <Chip label="Behavior → Result" status={d.alignment.behaviorToResult?.status} />
-        <button onClick={refreshAll} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-[#f4f7f1]"><RefreshCw className="size-3.5" />Refresh</button>
+        <button onClick={refreshAll} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-[#f3f4f5]"><RefreshCw className="size-3.5" />Refresh</button>
         {active && <ActionButton variant="danger" confirm="Stop this run and tear down its sandbox?" onClick={async () => { await stopRun(run.id); await refreshAll(); }}>Stop</ActionButton>}
         {run.status === "completed" && !d.review && (run.purpose ?? "builder") === "builder" && <ActionButton onClick={async () => { await createReview(run.id); await refreshAll(); }}>Start review</ActionButton>}
         {d.review?.status === "needs_human" && <ActionButton disabled={openFindings.length > 0} onClick={async () => { await approveReview(d.review!.id, { actor: "human", reason: "Approved from workbench" }); await refreshAll(); }}>Approve{openFindings.length > 0 && ` (${openFindings.length} open)`}</ActionButton>}
@@ -79,14 +79,14 @@ export function Workbench({ runId }: { runId: string }) {
     </div>
 
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_400px]">
-      <aside className="min-h-0 overflow-y-auto border-r bg-[#f7f9f4]">
-        <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[#657068]"><span className="inline-flex items-center gap-1.5"><FolderOpen className="size-3.5" />Changed files</span><span>{marks.size}{undeclaredCount > 0 && <span className="ml-1 text-[#815017]">· {undeclaredCount} undeclared</span>}</span></div>
-        {marks.size === 0 ? <p className="px-3 pb-3 text-xs text-[#657068]">{active ? "No git changes observed yet." : run.workspaceAccess === "read_only" ? "Read-only planning run: no writes expected." : "No file changes observed for this run."}</p>
+      <aside className="min-h-0 overflow-y-auto border-r bg-[#f6f2ec]">
+        <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[#64717c]"><span className="inline-flex items-center gap-1.5"><FolderOpen className="size-3.5" />Changed files</span><span>{marks.size}{undeclaredCount > 0 && <span className="ml-1 text-[#815017]">· {undeclaredCount} undeclared</span>}</span></div>
+        {marks.size === 0 ? <p className="px-3 pb-3 text-xs text-[#64717c]">{active ? "No git changes observed yet." : run.workspaceAccess === "read_only" ? "Read-only planning run: no writes expected." : "No file changes observed for this run."}</p>
           : <Tree nodes={tree} marks={marks} selected={selectedFile} onSelect={setSelectedFile} />}
-        <div className="mt-2 border-t px-3 py-3 text-[11px] text-[#657068]">
+        <div className="mt-2 border-t px-3 py-3 text-[11px] text-[#64717c]">
           <p><span className="text-[#14623f]">●</span> changed, declared in intent</p>
           <p><span className="text-[#815017]">●</span> changed, not declared</p>
-          <p><span className="text-[#9ca99d]">○</span> declared, no change observed</p>
+          <p><span className="text-[#98a4ad]">○</span> declared, no change observed</p>
           <p className="mt-2">Changes are independently observed via git; the full tree of the workspace is not retained after the sandbox is torn down.</p>
         </div>
       </aside>
@@ -95,7 +95,7 @@ export function Workbench({ runId }: { runId: string }) {
         <div className="flex items-center gap-1 border-b px-2">
           <TabButton active={!selectedFile && center === "transcript"} onClick={() => { setSelectedFile(null); setCenter("transcript"); }} icon={MessageSquareText}>Transcript ({allEvents.length})</TabButton>
           <TabButton active={!selectedFile && center === "timeline"} onClick={() => { setSelectedFile(null); setCenter("timeline"); }} icon={LayoutList}>Timeline ({timeline.data?.length ?? 0})</TabButton>
-          {selectedFile && <TabButton active icon={FileCode2} onClick={() => undefined}><span className="mono">{selectedFile}</span><span onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }} className="ml-1 rounded p-0.5 hover:bg-[#f1f4ee]"><X className="size-3" /></span></TabButton>}
+          {selectedFile && <TabButton active icon={FileCode2} onClick={() => undefined}><span className="mono">{selectedFile}</span><span onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }} className="ml-1 rounded p-0.5 hover:bg-[#f0f2f3]"><X className="size-3" /></span></TabButton>}
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {selectedFile ? <DiffView diff={selectedDiff} path={selectedFile} mark={marks.get(selectedFile)} />
@@ -104,7 +104,7 @@ export function Workbench({ runId }: { runId: string }) {
         </div>
       </section>
 
-      <aside className="min-h-0 overflow-y-auto border-l bg-[#fbfcf8]">
+      <aside className="min-h-0 overflow-y-auto border-l bg-[#fbfbfa]">
         <div className="flex gap-1 border-b px-2">
           <TabButton active={rail === "chain"} onClick={() => setRail("chain")}>Chain</TabButton>
           <TabButton active={rail === "findings"} onClick={() => setRail("findings")}>Findings ({d.findings.length})</TabButton>
@@ -123,7 +123,7 @@ export function Workbench({ runId }: { runId: string }) {
             <BehaviorSection behavior={d.behaviorSummary} intent={d.intent} />
             <ResultSection result={d.result} detail={d} />
           </>}
-          {rail === "findings" && (d.findings.length === 0 ? <p className="text-sm text-[#657068]">No findings for this run.</p>
+          {rail === "findings" && (d.findings.length === 0 ? <p className="text-sm text-[#64717c]">No findings for this run.</p>
             : d.findings.map((finding) => <FindingCard key={finding.id} finding={finding} resolutions={d.resolutions.filter((r) => r.findingId === finding.id)} onChanged={refreshAll} />))}
         </div>
       </aside>
@@ -141,18 +141,18 @@ function fileMarks(changed: string[], intent?: AgentIntent): Map<string, FileMar
 }
 
 function Back({ runId }: { runId: string }) {
-  return <Link href={`/runs/${runId}`} className="inline-flex items-center gap-1.5 text-xs text-[#657068] hover:text-[#101913]"><ArrowLeft className="size-3.5" />Run detail</Link>;
+  return <Link href={`/runs/${runId}`} className="inline-flex items-center gap-1.5 text-xs text-[#64717c] hover:text-[#182a33]"><ArrowLeft className="size-3.5" />Run detail</Link>;
 }
 
 function Chip({ label, status }: { label: string; status: AlignmentStatus | undefined }) {
-  return <span className="inline-flex items-center gap-1.5 text-xs text-[#657068]">{label}<AlignmentBadge status={status} /></span>;
+  return <span className="inline-flex items-center gap-1.5 text-xs text-[#64717c]">{label}<AlignmentBadge status={status} /></span>;
 }
 
 function TabButton({ active, onClick, icon: Icon, children }: { active: boolean; onClick: () => void; icon?: typeof FileCode2; children: React.ReactNode }) {
-  return <button onClick={onClick} className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold ${active ? "border-[#101913] text-[#101913]" : "border-transparent text-[#657068] hover:text-[#101913]"}`}>{Icon && <Icon className="size-3.5" />}{children}</button>;
+  return <button onClick={onClick} className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold ${active ? "border-[#182a33] text-[#182a33]" : "border-transparent text-[#64717c] hover:text-[#182a33]"}`}>{Icon && <Icon className="size-3.5" />}{children}</button>;
 }
 
-const markDot: Record<FileMark, string> = { declared: "text-[#14623f]", undeclared: "text-[#815017]", expected_untouched: "text-[#9ca99d]" };
+const markDot: Record<FileMark, string> = { declared: "text-[#14623f]", undeclared: "text-[#815017]", expected_untouched: "text-[#98a4ad]" };
 
 function Tree({ nodes, marks, selected, onSelect, depth = 0 }: { nodes: TreeNode[]; marks: Map<string, FileMark>; selected: string | null; onSelect: (path: string) => void; depth?: number }) {
   return <ul>{nodes.map((node) => <TreeRow key={node.path} node={node} marks={marks} selected={selected} onSelect={onSelect} depth={depth} />)}</ul>;
@@ -163,14 +163,14 @@ function TreeRow({ node, marks, selected, onSelect, depth }: { node: TreeNode; m
   const pad = { paddingLeft: `${8 + depth * 14}px` };
   if (!node.file) {
     return <li>
-      <button onClick={() => setOpen(!open)} style={pad} className="flex w-full items-center gap-1 py-1 pr-2 text-left text-xs text-[#3a443c] hover:bg-[#eef2e9]">{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}<span className="mono">{node.name}/</span></button>
+      <button onClick={() => setOpen(!open)} style={pad} className="flex w-full items-center gap-1 py-1 pr-2 text-left text-xs text-[#3a4650] hover:bg-[#edf0f2]">{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}<span className="mono">{node.name}/</span></button>
       {open && <Tree nodes={node.children} marks={marks} selected={selected} onSelect={onSelect} depth={depth + 1} />}
     </li>;
   }
   const mark = marks.get(node.path) ?? "declared";
   const untouched = mark === "expected_untouched";
   return <li>
-    <button onClick={() => onSelect(node.path)} style={pad} disabled={untouched} title={untouched ? "Declared in intent but no change observed" : mark} className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs ${selected === node.path ? "bg-[#dff869] text-[#17200f]" : untouched ? "text-[#9ca99d]" : "text-[#101913] hover:bg-[#eef2e9]"}`}>
+    <button onClick={() => onSelect(node.path)} style={pad} disabled={untouched} title={untouched ? "Declared in intent but no change observed" : mark} className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs ${selected === node.path ? "bg-[#d1b191] text-[#182a33]" : untouched ? "text-[#98a4ad]" : "text-[#182a33] hover:bg-[#edf0f2]"}`}>
       <span className={markDot[mark]}>{untouched ? "○" : "●"}</span><span className="mono truncate">{node.name}</span>
       {mark === "undeclared" && <span className="ml-auto status status-warn !px-1 !py-0 !text-[9px]">undeclared</span>}
     </button>
@@ -178,21 +178,21 @@ function TreeRow({ node, marks, selected, onSelect, depth }: { node: TreeNode; m
 }
 
 function DiffView({ diff, path, mark }: { diff?: FileDiff; path: string; mark?: FileMark }) {
-  if (!diff) return <div className="p-6 text-sm text-[#657068]">No diff content available for <span className="mono">{path}</span>. The change was observed via git, but the run did not retain a patch for it.</div>;
+  if (!diff) return <div className="p-6 text-sm text-[#64717c]">No diff content available for <span className="mono">{path}</span>. The change was observed via git, but the run did not retain a patch for it.</div>;
   return <div>
-    <div className="flex flex-wrap items-center gap-2 border-b bg-[#f7f9f4] px-4 py-2 text-xs">
+    <div className="flex flex-wrap items-center gap-2 border-b bg-[#f6f2ec] px-4 py-2 text-xs">
       <span className="status capitalize">{diff.status}</span>
       <span className="text-[#19734a]">+{diff.additions}</span><span className="text-[#9a3d31]">−{diff.deletions}</span>
       {mark === "undeclared" && <span className="status status-warn">not declared in intent</span>}
-      <VerificationBadge verification="independent" /><span className="text-[#9ca99d]">via git</span>
+      <VerificationBadge verification="independent" /><span className="text-[#98a4ad]">via git</span>
     </div>
-    {diff.binary ? <p className="p-6 text-sm text-[#657068]">Binary file.</p> : <table className="mono w-full border-collapse text-[12px] leading-5"><tbody>
+    {diff.binary ? <p className="p-6 text-sm text-[#64717c]">Binary file.</p> : <table className="mono w-full border-collapse text-[12px] leading-5"><tbody>
       {diff.lines.map((line, i) => line.kind === "hunk"
         ? <tr key={i} className="bg-[#eff8fc] text-[#265d78]"><td colSpan={3} className="px-3 py-0.5">{line.text}</td></tr>
         : <tr key={i} className={line.kind === "add" ? "bg-[#effaf3]" : line.kind === "del" ? "bg-[#fdf1ef]" : ""}>
-          <td className="w-10 select-none border-r px-2 text-right text-[#9ca99d]">{line.oldNumber ?? ""}</td>
-          <td className="w-10 select-none border-r px-2 text-right text-[#9ca99d]">{line.newNumber ?? ""}</td>
-          <td className="whitespace-pre-wrap break-all px-3"><span className={`mr-2 select-none ${line.kind === "add" ? "text-[#19734a]" : line.kind === "del" ? "text-[#9a3d31]" : "text-[#c5ccc2]"}`}>{line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}</span>{line.text}</td>
+          <td className="w-10 select-none border-r px-2 text-right text-[#98a4ad]">{line.oldNumber ?? ""}</td>
+          <td className="w-10 select-none border-r px-2 text-right text-[#98a4ad]">{line.newNumber ?? ""}</td>
+          <td className="whitespace-pre-wrap break-all px-3"><span className={`mr-2 select-none ${line.kind === "add" ? "text-[#19734a]" : line.kind === "del" ? "text-[#9a3d31]" : "text-[#c3cbd0]"}`}>{line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}</span>{line.text}</td>
         </tr>)}
     </tbody></table>}
   </div>;
@@ -202,17 +202,17 @@ const categoryActor: Record<string, TimelineEntry["actor"]> = { agent: "agent", 
 
 function Transcript({ events, error, onFile }: { events: AgentEvent[]; error: string | null; onFile: (path: string) => void }) {
   if (error && events.length === 0) return <div className="p-3"><ErrorBanner message={error} /></div>;
-  if (!events.length) return <p className="p-6 text-sm text-[#657068]">No events yet. The transcript fills in as the sandbox emits telemetry.</p>;
+  if (!events.length) return <p className="p-6 text-sm text-[#64717c]">No events yet. The transcript fills in as the sandbox emits telemetry.</p>;
   return <ol className="divide-y">{events.map((e) => {
     const actor = categoryActor[e.category] ?? "runtime";
     const text = describe(e);
     const file = typeof e.resource === "string" && (e.category === "filesystem" || e.category === "git") ? e.resource.replace(/^\/workspace\//, "") : null;
     return <li key={e.id} className="grid gap-x-3 gap-y-1 px-3 py-2 sm:grid-cols-[64px_84px_minmax(0,1fr)]">
-      <span className="mono text-[11px] text-[#657068]">{formatTime(e.timestamp)}</span>
+      <span className="mono text-[11px] text-[#64717c]">{formatTime(e.timestamp)}</span>
       <span className={`status justify-self-start border-transparent uppercase ${actorStyle[actor]}`}>{e.category}</span>
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs"><span className="mono font-semibold">{e.action}</span>{file && <button onClick={() => onFile(file)} className="mono underline decoration-dotted">{file}</button>}{!file && e.resource && <span className="mono text-[#3a443c]">{e.resource}</span>}{e.severity && e.severity !== "info" && <SeverityBadge severity={e.severity} />}{e.allowed === false && <span className="status status-bad">blocked</span>}<VerificationBadge verification={e.verification} /></div>
-        {text && <pre className={`mt-1 whitespace-pre-wrap break-words text-[12px] ${e.action === "message" ? "text-[#101913]" : "text-[#3a443c]"}`}>{text}</pre>}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs"><span className="mono font-semibold">{e.action}</span>{file && <button onClick={() => onFile(file)} className="mono underline decoration-dotted">{file}</button>}{!file && e.resource && <span className="mono text-[#3a4650]">{e.resource}</span>}{e.severity && e.severity !== "info" && <SeverityBadge severity={e.severity} />}{e.allowed === false && <span className="status status-bad">blocked</span>}<VerificationBadge verification={e.verification} /></div>
+        {text && <pre className={`mt-1 whitespace-pre-wrap break-words text-[12px] ${e.action === "message" ? "text-[#182a33]" : "text-[#3a4650]"}`}>{text}</pre>}
       </div>
     </li>;
   })}</ol>;
@@ -260,7 +260,7 @@ function outOfScopeItems(events: AgentEvent[]): OutOfScopeItem[] {
 function OutOfScopeSection({ events, onFile }: { events: AgentEvent[]; onFile: (path: string) => void }) {
   const items = useMemo(() => outOfScopeItems(events), [events]);
   return <Section eyebrow="3b · Out of scope" title="Asked for more than allowed" action={items.length ? <span className="status status-warn"><ShieldAlert className="mr-1 size-3.5" />{items.length}</span> : <span className="status status-good">none observed</span>}>
-    {items.length === 0 ? <p className="text-sm text-[#657068]">No blocked network requests or out-of-scope file changes were observed. Reads inside the workspace and direct (non-proxy) sockets cannot be observed, so this is not proof of absence.</p>
+    {items.length === 0 ? <p className="text-sm text-[#64717c]">No blocked network requests or out-of-scope file changes were observed. Reads inside the workspace and direct (non-proxy) sockets cannot be observed, so this is not proof of absence.</p>
       : <ul className="space-y-2">{items.map((item) => {
         const path = item.resource?.replace(/^\/workspace\//, "");
         return <li key={item.key} className="rounded-lg border bg-white px-3 py-2 text-sm">
@@ -268,7 +268,7 @@ function OutOfScopeSection({ events, onFile }: { events: AgentEvent[]; onFile: (
             <span className={`status ${item.outcome === "blocked" ? "status-bad" : "status-warn"}`}>{item.outcome === "blocked" ? "blocked" : "happened · flagged"}</span>
             <span>{item.what}</span>
             <VerificationBadge verification={item.event.verification} />
-            <span className="mono text-xs text-[#9ca99d]">{formatTime(item.event.timestamp)}</span>
+            <span className="mono text-xs text-[#98a4ad]">{formatTime(item.event.timestamp)}</span>
           </div>
           {item.resource && <p className="mono mt-1 text-xs">{item.outcome === "flagged" && path ? <button onClick={() => onFile(path)} className="underline decoration-dotted">{path}</button> : item.resource}</p>}
         </li>;
