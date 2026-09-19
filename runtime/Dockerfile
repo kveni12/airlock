@@ -4,6 +4,12 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git curl bash ca-certificates python3 \
   && rm -rf /var/lib/apt/lists/*
 
+# Coding-agent CLIs. API keys are never baked in; Periscope injects only the
+# secrets granted to a run as environment variables at container start.
+RUN npm install -g --no-fund --no-audit @anthropic-ai/claude-code @openai/codex opencode-ai \
+  && npm cache clean --force \
+  && claude --version && codex --version && opencode --version
+
 COPY runtime/bootstrap.sh /usr/local/bin/agentguard-bootstrap
 COPY runtime/demo-agent.sh /usr/local/bin/agentguard-demo-agent
 COPY runtime/phase2-demo-agent.sh /usr/local/bin/agentguard-phase2-demo-agent

@@ -6,6 +6,7 @@ import type { SandboxCreateOptions, SandboxHandle, SandboxProvider, WorkspaceMou
 import { runtimeEnvironment } from "./sandboxProvider.js";
 import { LineDecoder } from "../telemetry/lineDecoder.js";
 import type { RunRecord } from "../types.js";
+import type { RuntimeSetupService } from "./runtimeSetupService.js";
 
 interface DockerHandle extends SandboxHandle {
   container: Container;
@@ -29,7 +30,10 @@ export class DockerProvider implements SandboxProvider {
   private readonly docker = new Docker();
   private readonly networks = new Map<string, { name: string; gateway: string }>();
 
-  constructor(private readonly options: DockerProviderOptions = {}) {}
+  constructor(
+    private readonly options: DockerProviderOptions = {},
+    private readonly setup?: RuntimeSetupService
+  ) {}
 
   filesystemScope(): "enforced" {
     return "enforced";
@@ -90,8 +94,14 @@ export class DockerProvider implements SandboxProvider {
     const env = { HOME: "/tmp", ...runtimeEnvironment(proxyUrl), ...environment };
     const network = this.networks.get(run.id);
     const binds = dockerBinds(workspacePath, mounts);
+    const image = run.runtimeImage ?? "agentguard-runtime:latest";
+    if (this.setup && !(await this.setup.imagePresent(image))) {
+      options.onStatus?.(`Docker image ${image} is missing — building it from runtime/Dockerfile (first run only, may take a few minutes).`);
+      await this.setup.ensureImage(image);
+      options.onStatus?.(`Docker image ${image} built.`);
+    }
     const container = await this.docker.createContainer({
-      Image: run.runtimeImage ?? "agentguard-runtime:latest",
+      Image: image,
       name,
       Cmd: run.command,
       Labels: { [RUN_LABEL]: run.id },

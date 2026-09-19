@@ -120,6 +120,7 @@ export interface AgentProfile {
   defaultBaseVm: string;
   runtimeReady: boolean;
   recommendedSecrets: readonly string[];
+  recommendedHosts: readonly string[];
 }
 
 export interface DashboardSnapshot {
@@ -141,6 +142,34 @@ export interface AccessGap {
 export interface AccessGapReport {
   gaps: AccessGap[];
   verification: "agent_reported";
+}
+
+export interface RepoTreeEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+}
+
+export interface RepoTreeListing {
+  repoPath: string;
+  dir: string;
+  entries: RepoTreeEntry[];
+}
+
+export interface RuntimeStatus {
+  docker: { available: boolean; image: string; imagePresent: boolean; detail?: string };
+  lima: { available: boolean; baseVm: string; baseVmPresent: boolean; agentVms: Record<string, { vm: string; present: boolean }>; detail?: string };
+  process: { available: true; sandboxed: false };
+}
+
+export interface RuntimeSetupJob {
+  id: string;
+  target: { provider: "docker" } | { provider: "lima"; agent?: string };
+  status: "running" | "succeeded" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  exitCode?: number | null;
+  log: string[];
 }
 
 export type AlignmentStatus = "aligned" | "warning" | "conflict";
