@@ -1,4 +1,5 @@
 import type {
+  AccessGapReport,
   AgentEvent,
   AgentIntent,
   AgentIntentDraft,
@@ -144,6 +145,10 @@ export function getIntent(id: string, signal?: AbortSignal) {
 
 export function getIntentAlignment(id: string, signal?: AbortSignal) {
   return request<IntentAlignmentResponse>(`/api/intents/${enc(id)}/alignment`, signal);
+}
+
+export function checkIntentAccess(id: string, permissions: PermissionSnapshot) {
+  return request<AccessGapReport>(`/api/intents/${enc(id)}/access-check`, undefined, { method: "POST", body: { permissions } });
 }
 
 export function approveIntent(id: string, body: { actor?: string; reason?: string } = {}) {

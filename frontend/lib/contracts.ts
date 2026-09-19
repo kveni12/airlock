@@ -105,6 +105,18 @@ export interface DashboardSnapshot {
 
 // ---- Intent observability ----
 
+export type AccessGapKind = "filesystem_write" | "network" | "secret" | "mcp_server" | "tool";
+export interface AccessGap {
+  kind: AccessGapKind;
+  requested: string;
+  reason: string;
+  enforcement: "blocked" | "flagged" | "not_enforced";
+}
+export interface AccessGapReport {
+  gaps: AccessGap[];
+  verification: "agent_reported";
+}
+
 export type AlignmentStatus = "aligned" | "warning" | "conflict";
 export type RequestProvenance = "explicit" | "inferred";
 
