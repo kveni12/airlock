@@ -117,6 +117,18 @@ export interface AccessGapReport {
   verification: "agent_reported";
 }
 
+export interface RepoTreeEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+}
+
+export interface RepoTreeListing {
+  repoPath: string;
+  dir: string;
+  entries: RepoTreeEntry[];
+}
+
 export type AlignmentStatus = "aligned" | "warning" | "conflict";
 export type RequestProvenance = "explicit" | "inferred";
 

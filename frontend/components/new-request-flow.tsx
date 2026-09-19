@@ -7,7 +7,7 @@ import { ArrowDown, Check, ShieldAlert, ShieldCheck } from "lucide-react";
 import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
 import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
-import { AccessScopeEditor, DEFAULT_SCOPE, normalizeFolder, scopeToPermissions, summarizeScope, type AccessScope } from "./access-scope";
+import { AccessScopeEditor, DEFAULT_SCOPE, scopeToPermissions, setFolderAccess, summarizeScope, type AccessScope } from "./access-scope";
 import { FindingCard } from "./finding-card";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
@@ -88,9 +88,7 @@ export function NewRequestFlow() {
       case "filesystem_write": {
         const isGlob = /\*/.test(gap.requested);
         const folder = isGlob ? gap.requested.replace(/\/?[^/]*\*.*$/, "") : gap.requested.replace(/\/?[^/]*$/, "");
-        const path = normalizeFolder(folder || "/workspace");
-        const folders = s.folders.some((f) => f.path === path) ? s.folders.map((f) => f.path === path ? { ...f, access: "read_write" as const } : f) : [...s.folders, { path, access: "read_write" as const }];
-        return { ...s, folders };
+        return setFolderAccess(s, folder || "/workspace", "read_write");
       }
       case "network": return { ...s, hosts: [...s.hosts, gap.requested] };
       case "secret": return { ...s, secrets: [...s.secrets, gap.requested] };
@@ -203,7 +201,7 @@ export function NewRequestFlow() {
       {!requestResult ? <p className="text-sm text-[#657068]">Record the request first.</p> : !intent ? <div className="space-y-3">
         <div className="flex gap-2">{(["manual", "planner"] as const).map((m) => <button key={m} onClick={() => setIntentMode(m)} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${intentMode === m ? "border-[#101913] bg-[#101913] text-white" : "bg-white text-[#657068]"}`}>{m === "manual" ? "Paste structured intent" : "Run planner in read-only sandbox"}</button>)}</div>
         {agentWorkspaceFields}
-        <AccessScopeEditor scope={scope} onChange={setScope} provider={provider} plannerOnly={intentMode === "planner"} />
+        <AccessScopeEditor scope={scope} onChange={setScope} provider={provider} plannerOnly={intentMode === "planner"} repoPath={repoPath} />
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner agent id</span><input value={agentId} onChange={(e) => setAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
           {intentMode === "planner" && !usingRealAgent && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
@@ -260,7 +258,7 @@ export function NewRequestFlow() {
           <p className="text-sm font-semibold">The run will start with exactly this access</p>
           <ul className="mt-2 space-y-0.5 text-sm">{summarizeScope(scope, provider).map((line) => <li key={line}>{line}</li>)}</ul>
           {accessGaps && accessGaps.gaps.length > 0 && <p className="mt-2 text-xs text-[#815017]">{accessGaps.gaps.length} item{accessGaps.gaps.length === 1 ? "" : "s"} from the plan {accessGaps.gaps.length === 1 ? "is" : "are"} still denied — that is fine if intentional; attempts will show up as out-of-scope in the workbench.</p>}
-          <details className="mt-2 text-sm"><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-[#657068]">Adjust scope</summary><div className="mt-2"><AccessScopeEditor scope={scope} onChange={setScope} provider={provider} /></div></details>
+          <details className="mt-2 text-sm"><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-[#657068]">Adjust scope</summary><div className="mt-2"><AccessScopeEditor scope={scope} onChange={setScope} provider={provider} repoPath={repoPath} /></div></details>
         </div>
         {blocked && <p className="text-sm text-[#9a3d31]">{blocked}</p>}
         <ActionButton disabled={Boolean(blocked)} onClick={async () => { try { await startRun(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Start execution run</ActionButton>

@@ -11,6 +11,7 @@ import type {
   GenerateIntentBody,
   HumanRequest,
   PermissionSnapshot,
+  RepoTreeListing,
   RequestAnalysis,
   ResolutionAttempt,
   Review,
@@ -145,6 +146,10 @@ export function getIntent(id: string, signal?: AbortSignal) {
 
 export function getIntentAlignment(id: string, signal?: AbortSignal) {
   return request<IntentAlignmentResponse>(`/api/intents/${enc(id)}/alignment`, signal);
+}
+
+export function getRepoTree(repoPath: string, dir = "", signal?: AbortSignal) {
+  return request<RepoTreeListing>(`/api/repo-tree?path=${enc(repoPath)}&dir=${enc(dir)}`, signal);
 }
 
 export function checkIntentAccess(id: string, permissions: PermissionSnapshot) {
