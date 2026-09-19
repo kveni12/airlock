@@ -125,7 +125,7 @@ export function NewRequestFlow() {
       permissions: { filesystem: [{ path: "/workspace", access: fsAccess }], network: lines(network), secrets: lines(secretNames), mcpServers: [], tools: lines(tools) },
       timeoutMs
     });
-    router.push(`/runs/${runId}`);
+    router.push(`/workbench/${runId}`);
   };
 
   const blocked = alignment?.executionBlockReason ?? null;
