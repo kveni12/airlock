@@ -17,6 +17,11 @@ export function RuntimeStatusPanel({ provider, agentKind }: { provider: RuntimeP
   const jobId = job?.status === "running" ? job.id : null;
 
   useEffect(() => {
+    setJob(null);
+    setError(null);
+  }, [provider]);
+
+  useEffect(() => {
     if (!jobId) return;
     const controller = new AbortController();
     const timer = setInterval(() => {
