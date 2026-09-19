@@ -23,10 +23,10 @@ export function VerificationBadge({ verification }: { verification: EvidenceVeri
 
 export function verificationHelp(verification: EvidenceVerification | "unavailable"): string {
   switch (verification) {
-    case "independent": return "Observed directly by AgentGuard telemetry (filesystem, git, proxy, runtime).";
+    case "independent": return "Observed directly by Periscope telemetry (filesystem, git, proxy, runtime).";
     case "agent_reported": return "Reported by the agent itself; not independently verified.";
     case "inferred": return "Derived by analysis; not a direct observation.";
-    case "unavailable": return "AgentGuard cannot observe this channel; absence is not evidence.";
+    case "unavailable": return "Periscope cannot observe this channel; absence is not evidence.";
   }
 }
 

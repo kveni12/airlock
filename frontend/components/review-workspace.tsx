@@ -62,7 +62,7 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
         {findings.map((finding) => <FindingCard key={finding.id} finding={finding} onChanged={refresh} />)}
         {otherFindings.length > 0 && <>
           <h2 className="pt-4 text-lg font-semibold">Other findings on this run</h2>
-          <p className="-mt-2 text-xs text-[#657068]">Policy and intent-drift findings detected by AgentGuard telemetry for the same run.</p>
+          <p className="-mt-2 text-xs text-[#657068]">Policy and intent-drift findings detected by Periscope telemetry for the same run.</p>
           {otherFindings.map((finding) => <FindingCard key={finding.id} finding={finding} onChanged={refresh} />)}
         </>}
       </div>

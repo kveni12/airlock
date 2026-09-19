@@ -1,10 +1,10 @@
-# AgentGuard Backend Runtime Spec
+# Periscope Backend Runtime Spec
 
 > Architecture update: after the initial Docker MVP was implemented, the runtime was changed to use disposable Lima VMs by default for stronger isolation. Docker remains an explicit compatibility provider. The implementation notes record this intentional drift from the original request.
 
 ## Intent
 
-This backend implements the AgentGuard MVP runtime and observability path for coding-agent runs:
+This backend implements the Periscope MVP runtime and observability path for coding-agent runs:
 
 `CREATE SANDBOX -> EXECUTE -> OBSERVE`
 
@@ -77,21 +77,21 @@ Sandboxes are named predictably as `agentguard-{runId}`.
 
 ### VM Lifecycle
 
-The default runtime uses a stopped, reusable Lima VM named `agentguard-base`. It contains shell, git, curl, Node.js/npm, and AgentGuard bootstrap scripts. Each run clones that base into a disposable VM. On macOS, Lima uses Apple's Virtualization.framework (`vz`).
+The default runtime uses a stopped, reusable Lima VM named `agentguard-base`. It contains shell, git, curl, Node.js/npm, and Periscope bootstrap scripts. Each run clones that base into a disposable VM. On macOS, Lima uses Apple's Virtualization.framework (`vz`).
 
-For each run, AgentGuard creates a temporary copy of the repository and mounts only that directory into the VM. A guest-only symlink exposes it at `/workspace`. The original repository checkout is never mounted into the VM.
+For each run, Periscope creates a temporary copy of the repository and mounts only that directory into the VM. A guest-only symlink exposes it at `/workspace`. The original repository checkout is never mounted into the VM.
 
 VM clones receive CPU and memory limits, and the agent command runs with a process-count limit. The base VM uses no default host mounts, and per-run clones receive only their temporary workspace. Docker remains available only when explicitly requested with `runtime.provider: "docker"`.
 
 ### Agent Execution
 
-AgentGuard uses an agent adapter layer before sandbox creation. The universal adapter accepts any non-interactive command array and executes it inside `/workspace`. Named adapters include `generic`, `custom`, `codex`, `cursor`, `claude_code`, and `devin`; they resolve profile metadata into a tested non-interactive command, an agent-specific default base VM, and non-secret environment variables.
+Periscope uses an agent adapter layer before sandbox creation. The universal adapter accepts any non-interactive command array and executes it inside `/workspace`. Named adapters include `generic`, `custom`, `codex`, `cursor`, `claude_code`, and `devin`; they resolve profile metadata into a tested non-interactive command, an agent-specific default base VM, and non-secret environment variables.
 
-The runtime can use a per-run Lima base through `runtime.baseVm`, so teams can maintain bases containing Codex, Devin bridge tooling, or another coding-agent CLI. AgentGuard observes the command, workspace writes, git changes, network proxy events, and policy results regardless of which agent produced them.
+The runtime can use a per-run Lima base through `runtime.baseVm`, so teams can maintain bases containing Codex, Devin bridge tooling, or another coding-agent CLI. Periscope observes the command, workspace writes, git changes, network proxy events, and policy results regardless of which agent produced them.
 
-Cloud-only agents are supported through bridge mode: the bridge command must apply patches or export events back inside the AgentGuard VM/workspace. The base VM includes `devin-agentguard-bridge`, which executes a configured `DEVIN_BRIDGE_COMMAND` from `/workspace`. AgentGuard does not claim visibility into work performed entirely in a remote agent environment that bypasses the VM.
+Cloud-only agents are supported through bridge mode: the bridge command must apply patches or export events back inside the Periscope VM/workspace. The base VM includes `devin-agentguard-bridge`, which executes a configured `DEVIN_BRIDGE_COMMAND` from `/workspace`. Periscope does not claim visibility into work performed entirely in a remote agent environment that bypasses the VM.
 
-AgentGuard records a sanitized `process.start` event for the resolved command and a `process.exit` event with exit code and timing. Deeper per-child process tracing is not guaranteed in the MVP.
+Periscope records a sanitized `process.start` event for the resolved command and a `process.exit` event with exit code and timing. Deeper per-child process tracing is not guaranteed in the MVP.
 
 ### Telemetry Collection
 
@@ -106,10 +106,10 @@ Telemetry modules observe:
 
 Sandbox providers also forward the agent process's stdout and stderr as ordered, bounded lines. An `AgentOutputMonitor` classifies those lines before they reach the Event Collector:
 
-- Codex, Claude Code, and Cursor structured JSONL records are converted into stable AgentGuard events such as `agent.message`, `agent.reasoning`, `mcp.tool_call`, and `mcp.tool_result` where the source supplies the required fields.
-- Any custom agent or remote bridge can emit `AGENTGUARD_EVENT {json}` on stdout. AgentGuard ignores source-supplied run identity and applies the current run's identity before collection.
+- Codex, Claude Code, and Cursor structured JSONL records are converted into stable Periscope events such as `agent.message`, `agent.reasoning`, `mcp.tool_call`, and `mcp.tool_result` where the source supplies the required fields.
+- Any custom agent or remote bridge can emit `AGENTGUARD_EVENT {json}` on stdout. Periscope ignores source-supplied run identity and applies the current run's identity before collection.
 - Lines that do not match a structured record become sanitized `process.output` events with stream and sequence metadata.
-- Malformed explicit AgentGuard records produce `runtime.telemetry_degraded`; they do not silently disappear or fail the agent command.
+- Malformed explicit Periscope records produce `runtime.telemetry_degraded`; they do not silently disappear or fail the agent command.
 
 Output records are size-bounded, serialized through a per-run queue, redacted by the central collector, persisted, and streamed over SSE. Raw terminal bytes and secret values are never written directly to the event store.
 
@@ -140,7 +140,7 @@ Policy events are emitted as `category: "policy"` and `action: "violation"` with
 
 ### Git/Diff Collection
 
-Before execution, AgentGuard records branch, HEAD, and dirty status. After execution, it records changed files, summary stats, commits created during the run, dependency manifest changes, and a final diff string for future reviewer agents.
+Before execution, Periscope records branch, HEAD, and dirty status. After execution, it records changed files, summary stats, commits created during the run, dependency manifest changes, and a final diff string for future reviewer agents.
 
 ## Data Flow
 
@@ -156,7 +156,7 @@ Detailed flow:
 6. The Lima provider clones `agentguard-{runId}` from the reusable base VM.
 7. The VM starts the configured agent command in `/workspace`.
 8. Sandbox stdout/stderr and resource monitors emit raw observations.
-9. The output monitor converts vendor JSONL, the `AGENTGUARD_EVENT` protocol, and unstructured lines into AgentGuard event inputs.
+9. The output monitor converts vendor JSONL, the `AGENTGUARD_EVENT` protocol, and unstructured lines into Periscope event inputs.
 10. Event Collector normalizes, timestamps, redacts, persists, evaluates policy, and broadcasts.
 10. SSE clients receive events live.
 11. On completion or stop, final git telemetry is collected and stored.
@@ -171,7 +171,7 @@ The VM receives only the temporary workspace mounted from the host and exposed a
 
 ### Network Access
 
-The runtime sets `HTTP_PROXY` and `HTTPS_PROXY` to an AgentGuard proxy reachable through `host.lima.internal`. The proxy logs destinations, forwards allowed hosts, and blocks unapproved hosts where traffic uses the proxy. The MVP does not implement transparent proxying, packet capture, or HTTPS decryption.
+The runtime sets `HTTP_PROXY` and `HTTPS_PROXY` to an Periscope proxy reachable through `host.lima.internal`. The proxy logs destinations, forwards allowed hosts, and blocks unapproved hosts where traffic uses the proxy. The MVP does not implement transparent proxying, packet capture, or HTTPS decryption.
 
 ### Secrets
 
@@ -179,7 +179,7 @@ The create-run request declares allowed secret identifiers. At run creation, the
 
 ### MCP/Tool Access
 
-The MVP stores declared MCP servers and tools in the permission snapshot. It normalizes `mcp.tool_call` and `mcp.tool_result` records emitted by supported agent JSONL or the AgentGuard bridge protocol. Those records are agent-reported evidence; a full generic intercepting and enforcing MCP proxy is not part of P0.
+The MVP stores declared MCP servers and tools in the permission snapshot. It normalizes `mcp.tool_call` and `mcp.tool_result` records emitted by supported agent JSONL or the Periscope bridge protocol. Those records are agent-reported evidence; a full generic intercepting and enforcing MCP proxy is not part of P0.
 
 ### VM Isolation
 
@@ -328,7 +328,7 @@ Actions are stored without duplicating category when the category already suppli
 - Child processes are visible when reported by structured agent output; kernel-level tracing is not implemented.
 - Network monitoring depends on proxy-aware tooling inside the VM.
 - HTTPS traffic is not decrypted; only host/port are observed.
-- MCP calls emitted by supported structured output or the AgentGuard event protocol are observable, but a generic enforcing MCP proxy is not implemented.
+- MCP calls emitted by supported structured output or the Periscope event protocol are observable, but a generic enforcing MCP proxy is not implemented.
 - JSON-file persistence is suitable for MVP demos, not concurrent production scale.
 - Permission rules are policy warnings by default rather than hard enforcement.
 - Dependency diffing is basic and focuses on common manifest formats.
@@ -386,7 +386,7 @@ Mocked, incomplete, or limited:
 - The Docker integration test is gated behind `RUN_DOCKER_TESTS=1` because it requires Docker Desktop/Engine and the runtime image.
 - The VM integration test is gated behind `RUN_VM_TESTS=1` (or `npm run vm:test`) because it creates a real disposable VM.
 - Agent setup scripts install Codex, Claude Code, and Cursor CLIs into reusable bases. Real authenticated coding tasks were not run because vendor API credentials were not provided.
-- Cloud-only Devin execution is observable only through a bridge that exports patches/logs/events back into the AgentGuard VM/workspace.
+- Cloud-only Devin execution is observable only through a bridge that exports patches/logs/events back into the Periscope VM/workspace.
 - Codex, Claude Code, and Cursor JSONL receive best-effort normalization. Unknown or changed vendor records fall back to `process.output`; proprietary activity not emitted by a CLI or bridge remains invisible.
 - Filesystem reads are not observed.
 - Process telemetry independently captures the configured top-level command. Child commands are visible only when reported by structured agent output.

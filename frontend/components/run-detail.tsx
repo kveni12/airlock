@@ -147,7 +147,7 @@ function BehaviorSection({ behavior, intent }: { behavior?: ObservedBehavior; in
   const deps = declared(intent?.expectedDependencies);
   const net = declared(intent?.expectedNetwork);
   const secretsUnavailable = !Array.isArray(behavior.secrets);
-  return <Section eyebrow="4 · Observed behavior" title="What AgentGuard observed">
+  return <Section eyebrow="4 · Observed behavior" title="What Periscope observed">
     <dl className="space-y-3">
       <KeyValue label="Files modified"><ObservedList items={behavior.files.modified} flag={(i) => intent ? !matches(files, i.name) : false} /></KeyValue>
       <KeyValue label="Files created"><ObservedList items={behavior.files.created} flag={(i) => intent ? !matches(files, i.name) : false} /></KeyValue>

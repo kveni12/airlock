@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deterministic builder: performs the declared session fix, then intentionally drifts
-# (edits infrastructure, adds a dependency) so AgentGuard has real findings to resolve.
+# (edits infrastructure, adds a dependency) so Periscope has real findings to resolve.
 set -euo pipefail
 
 echo 'AGENTGUARD_EVENT {"category":"agent","action":"message","metadata":{"text":"Fixing session expiry handling."}}'

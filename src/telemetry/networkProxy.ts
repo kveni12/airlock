@@ -60,7 +60,7 @@ export class NetworkProxy {
     await this.emitNetworkEvent(destination.hostname, allowed, destination.port);
     if (!allowed) {
       response.writeHead(403);
-      response.end("Blocked by AgentGuard network policy");
+      response.end("Blocked by Periscope network policy");
       return;
     }
 
@@ -80,7 +80,7 @@ export class NetworkProxy {
 
     upstream.on("error", () => {
       response.writeHead(502);
-      response.end("AgentGuard proxy upstream error");
+      response.end("Periscope proxy upstream error");
     });
     request.pipe(upstream);
   }

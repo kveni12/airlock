@@ -1,6 +1,6 @@
-# AgentGuard
+# Periscope
 
-AgentGuard governs AI coding-agent runs by recording intent and permissions, executing builders in disposable sandboxes, collecting normalized telemetry, comparing intent with behavior, reviewing changes, resolving findings in new sandboxes, and recording human approval. Lima VMs are the default runtime; Docker remains an optional compatibility provider.
+Periscope governs AI coding-agent runs by recording intent and permissions, executing builders in disposable sandboxes, collecting normalized telemetry, comparing intent with behavior, reviewing changes, resolving findings in new sandboxes, and recording human approval. Lima VMs are the default runtime; Docker remains an optional compatibility provider.
 
 This repository implements the backend workflow for:
 
@@ -53,7 +53,7 @@ The base VM is named:
 agentguard-base
 ```
 
-AgentGuard clones this stopped base for every run, mounts only that run's temporary workspace, executes the agent, and deletes the clone. On macOS, Lima uses Apple's Virtualization.framework by default.
+Periscope clones this stopped base for every run, mounts only that run's temporary workspace, executes the agent, and deletes the clone. On macOS, Lima uses Apple's Virtualization.framework by default.
 
 Docker can still be selected explicitly with `runtime.provider: "docker"`; build its reusable image with `npm run docker:build`.
 
@@ -145,7 +145,7 @@ Design and reconciliation notes: `docs/intent-observability-spec.md`.
 
 ## Agent Compatibility
 
-AgentGuard is agent-agnostic at the runtime boundary. Any AI coding agent can run if it can be launched as a non-interactive command inside the selected base VM.
+Periscope is agent-agnostic at the runtime boundary. Any AI coding agent can run if it can be launched as a non-interactive command inside the selected base VM.
 
 | Agent | Adapter kind | Default base VM | Authentication identifier |
 | --- | --- | --- | --- |
@@ -163,7 +163,7 @@ npm run vm:setup-agent -- cursor
 npm run vm:setup-agent -- devin
 ```
 
-The first three commands install and verify their official CLI. The Devin base contains the AgentGuard bridge because Devin normally executes in its cloud environment. Every actual run still receives a fresh disposable clone.
+The first three commands install and verify their official CLI. The Devin base contains the Periscope bridge because Devin normally executes in its cloud environment. Every actual run still receives a fresh disposable clone.
 
 There are two supported ways to launch agents:
 
@@ -206,7 +206,7 @@ Declared secret names are resolved from the backend process environment at run c
 
 ### Codex
 
-Codex uses stable non-interactive `codex exec`. AgentGuard enables ephemeral JSON output and bypasses Codex's nested approval sandbox because execution is already contained by the disposable VM:
+Codex uses stable non-interactive `codex exec`. Periscope enables ephemeral JSON output and bypasses Codex's nested approval sandbox because execution is already contained by the disposable VM:
 
 ```bash
 curl -sS -X POST http://localhost:3000/api/runs \
@@ -280,7 +280,7 @@ Cursor Agent runs in non-interactive print mode with structured output:
 
 ### Devin
 
-Devin is often cloud-hosted, so AgentGuard distinguishes two cases:
+Devin is often cloud-hosted, so Periscope distinguishes two cases:
 
 - If Devin is available as a Linux CLI, run it with `agent.kind: "devin"` and a base VM containing that CLI.
 - If Devin runs in the cloud, use `executionMode: "bridge"` and provide a bridge command that forwards the task to Devin and applies resulting patches inside `/workspace`.
@@ -307,7 +307,7 @@ Example bridge payload:
 
 The base VM includes `devin-agentguard-bridge`, which executes `DEVIN_BRIDGE_COMMAND` from `/workspace`. Do not put raw secrets in this command string; pass secret values through your deployment environment or secret manager.
 
-AgentGuard can fully observe the bridge process, workspace writes, git diff, proxy-aware network calls, and policy events. It cannot observe actions performed entirely inside Devin's remote environment unless the bridge exports those actions back as files, patches, logs, or events.
+Periscope can fully observe the bridge process, workspace writes, git diff, proxy-aware network calls, and policy events. It cannot observe actions performed entirely inside Devin's remote environment unless the bridge exports those actions back as files, patches, logs, or events.
 
 ### Any Other Coding Agent
 
@@ -331,7 +331,7 @@ Filesystem, process, network-proxy, Git, policy, persistence, and SSE behavior i
 
 ## How Observability Works
 
-AgentGuard distinguishes independently observed evidence from agent-reported activity:
+Periscope distinguishes independently observed evidence from agent-reported activity:
 
 - **Observed by the sandbox:** top-level process lifecycle, stdout/stderr, workspace creates/writes/deletes, proxy-aware network destinations, final Git changes, and policy violations.
 - **Normalized from vendor output:** Codex, Claude Code, and Cursor structured output becomes stable `agent.*`, `process.command_*`, and `mcp.*` events.
@@ -420,7 +420,7 @@ For each run, the Runtime Manager:
 2. copies the requested repository into a temporary workspace,
 3. creates a git baseline in the temporary workspace if the source is not already a git checkout,
 4. starts filesystem telemetry,
-5. starts an AgentGuard HTTP/HTTPS proxy and injects proxy environment variables,
+5. starts an Periscope HTTP/HTTPS proxy and injects proxy environment variables,
 6. clones `agentguard-base` into a disposable `agentguard-{runId}` Lima VM,
 7. mounts only the temporary workspace and exposes it inside the guest at `/workspace`,
 8. executes the configured command,
@@ -484,11 +484,11 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 - Network observability depends on tools honoring `HTTP_PROXY`/`HTTPS_PROXY`; direct socket traffic is not blocked.
 - HTTPS bodies are not decrypted or inspected.
 - The network proxy records destination host/port only.
-- Generic MCP proxy enforcement is not implemented yet. MCP records emitted by supported JSONL adapters or the AgentGuard event protocol are observable but self-reported.
+- Generic MCP proxy enforcement is not implemented yet. MCP records emitted by supported JSONL adapters or the Periscope event protocol are observable but self-reported.
 - The default reviewer is deterministic and operates on a bounded immutable data snapshot. A production reviewer-agent sandbox is represented by an interface but not provisioned as a maintained model-specific VM yet.
 - Governance-enabled workspaces are retained for resolution chains; production deployments need a retention policy and garbage collector.
 - Vendor output formats can change; unknown records safely fall back to sanitized `process.output` instead of being discarded.
-- Devin runs remotely by design; AgentGuard can only observe actions and changes that its bridge imports into the disposable VM and event collector.
+- Devin runs remotely by design; Periscope can only observe actions and changes that its bridge imports into the disposable VM and event collector.
 - JSON-file persistence is intentionally simple and not designed for high-concurrency production workloads.
 
 ## Product Boundary
