@@ -108,6 +108,11 @@ describe("intent observability end-to-end (process runtime)", () => {
     expect(infra?.evidence?.requestId).toBe(request.id);
     expect(dependency?.file).toBe("package.json");
     expect(findings.some((f) => f.file === "src/auth/session.js")).toBe(false);
+    const violations = findings.filter((f) => f.type === "constraint_violation");
+    expect(violations.map((f) => f.evidence?.observedResource).sort()).toEqual(["axios", "infra/prod.tf"]);
+    expect(violations.every((f) => f.classification === "request_drift")).toBe(true);
+    expect(violations.find((f) => f.file === "infra/prod.tf")?.severity).toBe("critical");
+    expect(infra?.classification).toBe("plan_drift");
 
     const behavior = await api<ObservedBehavior>(app, "GET", `/api/runs/${runId}/behavior`);
     expect(behavior.files.modified.map((f) => f.name).sort()).toEqual(["infra/prod.tf", "package.json", "src/auth/session.js", "tests/auth/session.test.js"]);

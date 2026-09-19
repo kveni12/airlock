@@ -119,11 +119,29 @@ export class ReviewService {
     const approved = await this.store.updateReview(reviewId, {
       status: "approved",
       approvedAt: new Date().toISOString(),
-      approval
+      approval,
+      summary: approvedSummary(review, approval)
     });
     const run = await this.store.getRun(review.runId);
     if (run) await this.events.emitEvent(reviewEvent(run, review.id, "approved", approval));
     return approved as Review;
+  }
+
+  async reject(reviewId: string, rejection: { actor?: string; reason?: string }): Promise<Review> {
+    const review = await this.store.getReview(reviewId);
+    if (!review) throw new Error(`Review not found: ${reviewId}`);
+    if (review.status !== "needs_human") throw new Error(`Review in status '${review.status}' cannot be rejected`);
+    const who = rejection.actor ? ` by ${rejection.actor}` : "";
+    const why = rejection.reason ? ` — ${rejection.reason}` : "";
+    const rejected = await this.store.updateReview(reviewId, {
+      status: "rejected",
+      rejectedAt: new Date().toISOString(),
+      rejection,
+      summary: `Rejected${who} after human review; the run's changes must not be merged${why}.`
+    });
+    const run = await this.store.getRun(review.runId);
+    if (run) await this.events.emitEvent(reviewEvent(run, review.id, "rejected", rejection, "medium"));
+    return rejected as Review;
   }
 
   private async requireCompletedRun(runId: string): Promise<RunRecord> {
@@ -134,6 +152,12 @@ export class ReviewService {
     }
     return run;
   }
+}
+
+export function approvedSummary(review: Review, approval: { actor?: string; reason?: string }): string {
+  const who = approval.actor ? ` by ${approval.actor}` : "";
+  const why = approval.reason ? ` — ${approval.reason}` : "";
+  return `Approved${who} after human review of ${review.filesReviewed}/${review.filesTotal} files (${review.findingIds.length} finding(s) reviewed)${why}.`;
 }
 
 function buildFileReviews(changedFiles: string[], reviewedFiles: string[], findings: Finding[]): FileReview[] {

@@ -235,7 +235,7 @@ interface OutOfScopeItem {
   key: string;
   what: string;
   resource?: string;
-  outcome: "blocked" | "flagged";
+  outcome: "blocked" | "prevented" | "flagged";
   event: AgentEvent;
 }
 
@@ -253,6 +253,7 @@ function outOfScopeItems(events: AgentEvent[]): OutOfScopeItem[] {
   }
   for (const e of events) {
     if (e.category === "network" && e.allowed === false && !violated.has(e.id)) items.push({ key: e.id, what: "Tried to reach a host not on the internet allowlist", resource: e.resource, outcome: "blocked", event: e });
+    if (e.category === "filesystem" && e.action === "write_prevented") items.push({ key: e.id, what: "Tried to write to a read-only folder — the sandbox refused", resource: e.resource, outcome: "prevented", event: e });
   }
   return items.sort((a, b) => a.event.timestamp.localeCompare(b.event.timestamp));
 }
@@ -265,7 +266,7 @@ function OutOfScopeSection({ events, onFile }: { events: AgentEvent[]; onFile: (
         const path = item.resource?.replace(/^\/workspace\//, "");
         return <li key={item.key} className="rounded-lg border bg-white px-3 py-2 text-sm">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`status ${item.outcome === "blocked" ? "status-bad" : "status-warn"}`}>{item.outcome === "blocked" ? "blocked" : "happened · flagged"}</span>
+            <span className={`status ${item.outcome === "flagged" ? "status-warn" : "status-bad"}`}>{item.outcome === "blocked" ? "blocked" : item.outcome === "prevented" ? "prevented by sandbox" : "happened · flagged"}</span>
             <span>{item.what}</span>
             <VerificationBadge verification={item.event.verification} />
             <span className="mono text-xs text-[#98a4ad]">{formatTime(item.event.timestamp)}</span>

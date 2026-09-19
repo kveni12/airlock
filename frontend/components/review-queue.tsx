@@ -8,10 +8,21 @@ import type { Review } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { Empty, ErrorBanner, formatDateTime } from "./ui";
 
-const filters = ["all", "needs_human", "reviewing", "approved", "failed"] as const;
+const filters = ["all", "needs_human", "reviewing", "approved", "rejected", "failed"] as const;
 
 function statusClass(status: Review["status"]) {
-  return status === "approved" ? "status-good" : status === "needs_human" ? "status-warn" : status === "failed" ? "status-bad" : "status-info";
+  return status === "approved" ? "status-good" : status === "needs_human" ? "status-warn" : status === "failed" || status === "rejected" ? "status-bad" : "status-info";
+}
+
+/** Reviews decided before the summary was rewritten on approval still carry the reviewer's pre-decision text. */
+export function reviewSummary(review: Review): string {
+  if (review.status === "approved") {
+    return `Approved${review.approval?.actor ? ` by ${review.approval.actor}` : ""} after human review of ${review.filesReviewed}/${review.filesTotal} files (${review.findingIds.length} finding(s) reviewed)${review.approval?.reason ? ` — ${review.approval.reason}` : ""}.`;
+  }
+  if (review.status === "rejected") {
+    return `Rejected${review.rejection?.actor ? ` by ${review.rejection.actor}` : ""} after human review${review.rejection?.reason ? ` — ${review.rejection.reason}` : ""}.`;
+  }
+  return review.summary ?? review.failureReason ?? "Review in progress.";
 }
 
 export function ReviewQueue() {
@@ -36,7 +47,7 @@ export function ReviewQueue() {
         <div>
           <div className="flex flex-wrap items-center gap-2"><span className={`status ${statusClass(review.status)}`}>{review.status.replace("_", " ")}</span><span className="mono text-xs text-[#64717c]">run {review.runId}</span></div>
           <h2 className="mt-3 text-lg font-semibold">{review.taskId}</h2>
-          <p className="mt-2 max-w-3xl text-sm text-[#64717c]">{review.summary ?? review.failureReason ?? "Review in progress."}</p>
+          <p className="mt-2 max-w-3xl text-sm text-[#64717c]">{reviewSummary(review)}</p>
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-[#64717c]"><span>builder {review.builderAgentId}</span><span>reviewer {review.reviewerAgentId}</span><span>{review.filesReviewed}/{review.filesTotal} files reviewed</span><span>{review.findingIds.length} findings</span><span>{formatDateTime(review.createdAt)}</span></div>
         </div>
         <div className="flex items-center gap-4 sm:justify-end"><div className="text-right"><p className="text-2xl font-semibold">{review.filesWithFindings}</p><p className="text-[10px] uppercase tracking-wider text-[#64717c]">files w/ findings</p></div><ArrowRight className="size-5 transition group-hover:translate-x-1" /></div>

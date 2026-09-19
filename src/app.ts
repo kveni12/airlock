@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
-import type { AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot } from "./types.js";
+import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
@@ -45,6 +45,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   const events = context?.events ?? new EventCollector(store, policy);
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
+  const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
   const intents = context?.intents ?? new IntentService(store);
   const findings = context?.findings ?? new FindingService(store, events);
@@ -77,6 +78,9 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     intent.requestId ? (await intentAlignment.analyze(intent.id)).intent : intent;
 
   const app = Fastify({ logger: true });
+  if (recovered && (recovered.failedRuns.length || Object.values(recovered.reaped).some((ids) => ids.length))) {
+    app.log.warn({ recovered }, "Recovered sandboxes left behind by a previous backend process");
+  }
   await app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ ok: true }));
@@ -148,13 +152,24 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     }
   });
 
-  app.get("/api/runs", async () => ({ runs: await store.listRuns() }));
+  /** Planner runs recorded before intents back-filled their run record: derive links from the intent they produced. */
+  const withPlannerLinks = (run: RunRecord, allIntents: AgentIntent[]): RunRecord => {
+    if (run.intentId && run.requestId) return run;
+    const produced = allIntents.find((intent) => intent.planningRunId === run.id);
+    if (!produced) return run;
+    return { ...run, intentId: run.intentId ?? produced.id, requestId: run.requestId ?? produced.requestId };
+  };
+
+  app.get("/api/runs", async () => {
+    const [runs, allIntents] = await Promise.all([store.listRuns(), store.listIntents()]);
+    return { runs: runs.map((run) => withPlannerLinks(run, allIntents)) };
+  });
 
   app.get("/api/runs/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const run = await store.getRun(id);
     if (!run) return reply.code(404).send({ error: "Run not found" });
-    return run;
+    return withPlannerLinks(run, await store.listIntents());
   });
 
   app.post("/api/runs/:id/stop", async (request, reply) => {
@@ -208,6 +223,27 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       return reply.code(400).send({ error: errorMessage(error) });
     }
   });
+
+  app.post("/api/requests/preview", async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { rawPrompt?: unknown; rules?: unknown };
+      return await requests.preview(typeof body.rawPrompt === "string" ? body.rawPrompt : "", body.rules);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/request-rules", async () => requests.getRules());
+
+  app.put("/api/request-rules", async (request, reply) => {
+    try {
+      return await requests.updateRules(request.body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/request-rules/reset", async () => requests.resetRules());
 
   app.get("/api/requests/:id", async (request, reply) => {
     const humanRequest = await requests.get((request.params as { id: string }).id);
@@ -274,7 +310,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       if (body.structuredOutput !== undefined) {
         draft = intents.parseGeneratedOutput(body.structuredOutput);
       } else {
-        const plannerRequest = plannerRunRequest(body, taskId, agentId, humanRequest?.rawPrompt);
+        const plannerRequest = plannerRunRequest(body, taskId, agentId, humanRequest?.rawPrompt, requestId);
         const plannerRun = await runtime.createRun(plannerRequest);
         planningRunId = plannerRun.id;
         const completed = await runtime.waitForTerminal(plannerRun.id, plannerRequest.timeoutMs);
@@ -317,6 +353,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
         planningRunId,
         supersedes: typeof body.supersedes === "string" ? body.supersedes : undefined
       });
+      if (planningRunId) await store.updateRun(planningRunId, { intentId: intent.id, requestId });
       return reply.code(201).send(await alignIfRequested(intent));
     } catch (error: unknown) {
       return reply.code(422).send({ error: errorMessage(error) });
@@ -481,6 +518,17 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     }
   });
 
+  app.post("/api/reviews/:id/reject", async (request, reply) => {
+    try {
+      return await reviews.reject(
+        (request.params as { id: string }).id,
+        (request.body ?? {}) as { actor?: string; reason?: string }
+      );
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get("/api/dashboard/summary", async () => summaries.dashboard());
 
   app.get("/api/agents/:id/summary", async (request, reply) => {
@@ -529,7 +577,7 @@ function requiredBodyString(value: unknown, name: string): string {
   return value.trim();
 }
 
-function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentId: string, rawPrompt?: string): CreateRunRequest {
+function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentId: string, rawPrompt?: string, requestId?: string): CreateRunRequest {
   const repo = body.repo as CreateRunRequest["repo"] | undefined;
   const agent = body.agent as CreateRunRequest["agent"] | undefined;
   const command = body.command as string[] | undefined;
@@ -551,6 +599,7 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
     timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 300_000,
     cleanupWorkspace: true,
     runtime: body.runtime as CreateRunRequest["runtime"],
+    requestId,
     purpose: "planner"
   };
 }

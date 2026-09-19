@@ -1,3 +1,7 @@
+import type { RequestAnalyzerRules } from "./request/requestRules.js";
+
+export type { RequestAnalyzerRules };
+
 export type RunStatus =
   | "pending"
   | "starting"
@@ -244,7 +248,15 @@ export type FindingType =
   | "code_quality"
   | "sensitive_change"
   | "missing_action"
+  | "constraint_violation"
   | "other";
+/**
+ * Where in the chain the drift happened:
+ * request_drift — contradicts what the human asked (explicit constraint or forbidden resource);
+ * plan_drift — differs from the agent's own declared intent;
+ * permission_violation — exceeded the enforced/granted permission scope.
+ */
+export type FindingClassification = "request_drift" | "plan_drift" | "permission_violation";
 export type FindingStatus = "open" | "resolving" | "re_reviewing" | "resolved" | "dismissed";
 
 export interface FindingEvidence {
@@ -268,6 +280,7 @@ export interface Finding {
   reviewId?: string;
   source: FindingSource;
   type: FindingType;
+  classification?: FindingClassification;
   severity: EventSeverity;
   title: string;
   description: string;
@@ -293,7 +306,7 @@ export interface Review {
   runId: string;
   builderAgentId: string;
   reviewerAgentId: string;
-  status: "pending" | "reviewing" | "needs_human" | "approved" | "failed";
+  status: "pending" | "reviewing" | "needs_human" | "approved" | "rejected" | "failed";
   filesTotal: number;
   filesReviewed: number;
   cleanFiles: number;
@@ -305,6 +318,8 @@ export interface Review {
   completedAt?: string;
   approvedAt?: string;
   approval?: { actor?: string; reason?: string };
+  rejectedAt?: string;
+  rejection?: { actor?: string; reason?: string };
   failureReason?: string;
 }
 
@@ -344,6 +359,8 @@ export interface HumanRequest {
   rawPrompt: string;
   explicitConstraints?: string[];
   requestedObjectives?: string[];
+  /** `manual`: the human reviewed/edited the extracted lists, so the prompt is not re-parsed for objectives/constraints. */
+  analysisMode?: "rules" | "manual";
   context?: {
     attachments?: string[];
     metadata?: Record<string, unknown>;
@@ -387,6 +404,8 @@ export interface RequestAnalysis {
   explicitlyForbiddenResources: RequestResource[];
   ambiguities: string[];
   analyzer: "deterministic";
+  /** Revision of the editable rule set that produced this analysis (0 = built-in defaults). */
+  rulesRevision?: number;
   createdAt: string;
 }
 
@@ -405,6 +424,7 @@ export interface AlignmentSummary {
   intentToBehavior: AlignmentSegment;
   behaviorToResult?: AlignmentSegment;
   counts: {
+    constraintViolations: number;
     undeclaredFiles: number;
     undeclaredDependencies: number;
     undeclaredNetworkDestinations: number;
@@ -433,9 +453,11 @@ export interface ResultSummary {
     findingIds: string[];
     approvedAt?: string;
     approval?: Review["approval"];
+    rejectedAt?: string;
+    rejection?: Review["rejection"];
   };
   findings: { total: number; open: number; resolved: number; dismissed: number };
-  approvalStatus: "approved" | "needs_human" | "pending" | "not_reviewed";
+  approvalStatus: "approved" | "rejected" | "needs_human" | "pending" | "not_reviewed";
 }
 
 export type TimelineEntryKind =
@@ -489,6 +511,7 @@ export interface StoredData {
   findings: Finding[];
   reviews: Review[];
   resolutions: ResolutionAttempt[];
+  requestRules?: RequestAnalyzerRules;
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &

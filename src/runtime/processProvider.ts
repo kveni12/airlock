@@ -4,6 +4,17 @@ import { LineDecoder } from "../telemetry/lineDecoder.js";
 import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
 
+const PASSTHROUGH_HOST_ENV = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "TERM", "SYSTEMROOT", "COMSPEC", "PATHEXT"];
+
+export function baseHostEnvironment(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of PASSTHROUGH_HOST_ENV) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
 interface ProcessHandle extends SandboxHandle {
   options: SandboxCreateOptions;
   child?: ChildProcess;
@@ -17,9 +28,17 @@ interface ProcessHandle extends SandboxHandle {
  * full telemetry/finding/review pipeline can run deterministically on hosts without Lima or
  * Docker (demos, CI). It must be selected explicitly and should never be used for untrusted agents.
  * Read-only planning is enforced only by the post-run Git modification check in RuntimeManager.
+ *
+ * The child does NOT inherit the host environment: only PATH/HOME/locale basics plus the
+ * environment Periscope resolved for the run (granted secrets, agent config) are passed, so host
+ * API keys are not silently visible to the agent.
  */
 export class ProcessProvider implements SandboxProvider {
   readonly kind = "process" as const;
+
+  filesystemScope(): "observed" {
+    return "observed";
+  }
   readonly proxyHostname = "127.0.0.1";
 
   async create(options: SandboxCreateOptions): Promise<ProcessHandle> {
@@ -36,7 +55,7 @@ export class ProcessProvider implements SandboxProvider {
     const child = spawn(executable, executableArgs, {
       cwd: workspacePath,
       env: {
-        ...process.env,
+        ...baseHostEnvironment(),
         ...runtimeEnvironment(proxyUrl),
         ...environment,
         PATH: `${path.resolve("runtime/bin")}${path.delimiter}${path.resolve("runtime")}${path.delimiter}${process.env.PATH ?? ""}`,
