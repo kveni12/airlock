@@ -6,22 +6,28 @@ import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
+import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
 import { BehaviorAnalysisService } from "./analysis/behaviorAnalyzer.js";
 import { ReviewService } from "./review/reviewService.js";
 import { ResolutionService, type ResolveFindingRequest } from "./resolution/resolutionService.js";
 import { SummaryService } from "./dashboard/summaryService.js";
+import { RunInsightService } from "./dashboard/runInsightService.js";
 
 export interface AppContext {
   store: JsonStore;
   events: EventCollector;
   runtime: RuntimeManager;
+  requests: RequestService;
   intents: IntentService;
+  intentAlignment: IntentAlignmentService;
   findings: FindingService;
   analysis: BehaviorAnalysisService;
   reviews: ReviewService;
   resolutions: ResolutionService;
   summaries: SummaryService;
+  insights: RunInsightService;
 }
 
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
@@ -36,12 +42,15 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   const events = context?.events ?? new EventCollector(store, policy);
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
+  const requests = context?.requests ?? new RequestService(store);
   const intents = context?.intents ?? new IntentService(store);
   const findings = context?.findings ?? new FindingService(store, events);
+  const intentAlignment = context?.intentAlignment ?? new IntentAlignmentService(store, intents, findings);
   const analysis = context?.analysis ?? new BehaviorAnalysisService(store, findings);
   const reviews = context?.reviews ?? new ReviewService(store, events, findings, analysis);
   const resolutions = context?.resolutions ?? new ResolutionService(store, events, runtime, findings, analysis, reviews);
   const summaries = context?.summaries ?? new SummaryService(store);
+  const insights = context?.insights ?? new RunInsightService(store);
 
   events.subscribeAll((event) => {
     if (event.category !== "runtime" || event.action !== "completed") return;
@@ -61,6 +70,9 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     });
   });
 
+  const alignIfRequested = async (intent: Awaited<ReturnType<IntentService["create"]>>) =>
+    intent.requestId ? (await intentAlignment.analyze(intent.id)).intent : intent;
+
   const app = Fastify({ logger: true });
   await app.register(cors, { origin: true });
 
@@ -72,20 +84,38 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     try {
       const body = { ...(request.body as CreateRunRequest) };
       if (body.intent && body.intentId) throw new Error("Provide either intent or intentId, not both");
+      if (body.requestId) {
+        const humanRequest = await requests.get(body.requestId);
+        if (!humanRequest) throw new Error(`Request not found: ${body.requestId}`);
+        if (humanRequest.runId) throw new Error(`Request ${body.requestId} is already attached to run ${humanRequest.runId}`);
+      }
       if (body.intent) {
         const intent = await intents.create(body.taskId, body.intent, {
           agentId: body.agentId,
-          agentType: body.agent?.kind ?? "generic"
+          agentType: body.agent?.kind ?? "generic",
+          requestId: body.requestId
         });
+        if (body.requestId) await intentAlignment.analyze(intent.id);
         body.intentId = intent.id;
         body.expectedFiles ??= intent.expectedFiles;
-      } else if (body.intentId) {
-        const intent = await store.getIntent(body.intentId);
+      }
+      if (body.intentId) {
+        const intent = await intents.get(body.intentId);
         if (!intent) throw new Error(`Intent not found: ${body.intentId}`);
+        if (intent.requestId && body.requestId && intent.requestId !== body.requestId) {
+          throw new Error(`Intent ${intent.id} belongs to request ${intent.requestId}, not ${body.requestId}`);
+        }
+        body.requestId ??= intent.requestId;
+        const blocked = intents.executionBlockReason(intent);
+        if (blocked) throw new Error(blocked);
         body.expectedFiles ??= intent.expectedFiles;
       }
       const run = await runtime.createRun(body);
-      if (body.intentId) await intents.attachToRun(body.intentId, run.id, run.taskId);
+      if (body.requestId) await requests.attachToRun(body.requestId, run.id);
+      if (body.intentId) {
+        await intents.attachToRun(body.intentId, run.id, run.taskId);
+        await intentAlignment.attachFindingsToRun(body.intentId, run.id);
+      }
       return reply.code(202).send({
         runId: run.id,
         sandboxId: run.sandboxId ?? null,
@@ -140,14 +170,62 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     };
   });
 
+  app.post("/api/requests", async (request, reply) => {
+    try {
+      const created = await requests.create(validateRequestDraft(request.body));
+      return reply.code(201).send(created);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/requests/:id", async (request, reply) => {
+    const humanRequest = await requests.get((request.params as { id: string }).id);
+    return humanRequest ?? reply.code(404).send({ error: "Request not found" });
+  });
+
+  app.get("/api/requests/:id/analysis", async (request, reply) => {
+    const analysis = await requests.getAnalysis((request.params as { id: string }).id);
+    return analysis ?? reply.code(404).send({ error: "Request analysis not found" });
+  });
+
+  for (const [route, load] of [
+    ["detail", (id: string) => insights.detail(id)],
+    ["alignment", (id: string) => insights.alignment(id)],
+    ["timeline", async (id: string) => ({ runId: id, entries: await insights.timeline(id) })],
+    ["result", (id: string) => insights.result(id)],
+    ["behavior", async (id: string) => (await insights.detail(id)).behaviorSummary ?? { runId: id, unavailable: "Run has no attached intent; behavior summary requires one" }]
+  ] as const) {
+    app.get(`/api/runs/:id/${route}`, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!(await store.getRun(id))) return reply.code(404).send({ error: "Run not found" });
+      return load(id);
+    });
+  }
+
+  app.get("/api/runs/:id/request", async (request, reply) => {
+    const run = await store.getRun((request.params as { id: string }).id);
+    if (!run) return reply.code(404).send({ error: "Run not found" });
+    const humanRequest = run.requestId ? await requests.get(run.requestId) : await store.getRequestForRun(run.id);
+    return humanRequest ?? reply.code(404).send({ error: "Request not found" });
+  });
+
   app.post("/api/intents", async (request, reply) => {
     try {
-      const body = request.body as AgentIntentDraft & { taskId: string; agentId?: string; agentType?: string };
+      const body = request.body as AgentIntentDraft & {
+        taskId: string;
+        agentId?: string;
+        agentType?: string;
+        requestId?: string;
+        supersedes?: string;
+      };
       const intent = await intents.create(body.taskId, body, {
         agentId: body.createdBy?.agentId ?? body.agentId ?? "human",
-        agentType: body.createdBy?.agentType ?? body.agentType ?? "human"
+        agentType: body.createdBy?.agentType ?? body.agentType ?? "human",
+        requestId: body.requestId,
+        supersedes: body.supersedes
       });
-      return reply.code(201).send(intent);
+      return reply.code(201).send(await alignIfRequested(intent));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -158,15 +236,23 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     try {
       const taskId = requiredBodyString(body.taskId, "taskId");
       const agentId = requiredBodyString(body.agentId, "agentId");
+      const requestId = typeof body.requestId === "string" ? body.requestId : undefined;
+      const humanRequest = requestId ? await requests.get(requestId) : undefined;
+      if (requestId && !humanRequest) throw new Error(`Request not found: ${requestId}`);
       let draft: AgentIntentDraft;
+      let planningRunId: string | undefined;
       if (body.structuredOutput !== undefined) {
         draft = intents.parseGeneratedOutput(body.structuredOutput);
       } else {
-        const plannerRequest = plannerRunRequest(body, taskId, agentId);
+        const plannerRequest = plannerRunRequest(body, taskId, agentId, humanRequest?.rawPrompt);
         const plannerRun = await runtime.createRun(plannerRequest);
+        planningRunId = plannerRun.id;
         const completed = await runtime.waitForTerminal(plannerRun.id, plannerRequest.timeoutMs);
         const plannerEvents = await store.getEvents(completed.id);
         const generated = extractGeneratedIntent(plannerEvents);
+        if (completed.status !== "completed") {
+          throw new Error(completed.failureReason ?? `Planner run ended with status ${completed.status}`);
+        }
         if (!generated) {
           await events.emitEvent({
             runId: completed.id,
@@ -179,21 +265,95 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
           });
           throw new Error("Planner produced no valid structured intent");
         }
-        draft = intents.parseGeneratedOutput(generated);
+        try {
+          draft = intents.parseGeneratedOutput(generated);
+        } catch (error: unknown) {
+          await events.emitEvent({
+            runId: completed.id,
+            taskId,
+            agentId,
+            category: "runtime",
+            action: "intent_generation_failed",
+            severity: "medium",
+            metadata: { reason: `Planner produced malformed intent: ${errorMessage(error)}` }
+          });
+          throw error;
+        }
       }
       const intent = await intents.create(taskId, draft, {
         agentId,
-        agentType: typeof body.agentType === "string" ? body.agentType : "planner"
+        agentType: typeof body.agentType === "string" ? body.agentType : "planner",
+        requestId,
+        planningRunId,
+        supersedes: typeof body.supersedes === "string" ? body.supersedes : undefined
       });
-      return reply.code(201).send(intent);
+      return reply.code(201).send(await alignIfRequested(intent));
     } catch (error: unknown) {
       return reply.code(422).send({ error: errorMessage(error) });
     }
   });
 
   app.get("/api/intents/:id", async (request, reply) => {
-    const intent = await store.getIntent((request.params as { id: string }).id);
+    const intent = await intents.get((request.params as { id: string }).id);
     return intent ?? reply.code(404).send({ error: "Intent not found" });
+  });
+
+  app.get("/api/intents/:id/alignment", async (request, reply) => {
+    const intent = await intents.get((request.params as { id: string }).id);
+    if (!intent) return reply.code(404).send({ error: "Intent not found" });
+    return {
+      intentId: intent.id,
+      requestId: intent.requestId ?? null,
+      alignment: intent.alignment ?? null,
+      approval: intent.approval ?? null,
+      executionBlockReason: intents.executionBlockReason(intent) ?? null,
+      findings: await intentAlignment.findingsFor(intent.id)
+    };
+  });
+
+  app.post("/api/intents/:id/analyze", async (request, reply) => {
+    try {
+      return await intentAlignment.analyze((request.params as { id: string }).id);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intents/:id/approve", async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { actor?: string; reason?: string };
+      return await intents.approve((request.params as { id: string }).id, body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intents/:id/reject", async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { actor?: string; reason?: string };
+      return await intents.reject((request.params as { id: string }).id, body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intents/:id/revise", async (request, reply) => {
+    try {
+      const previousId = (request.params as { id: string }).id;
+      const previous = await intents.get(previousId);
+      if (!previous) return reply.code(404).send({ error: "Intent not found" });
+      const body = request.body as AgentIntentDraft & { agentId?: string; agentType?: string };
+      const intent = await intents.create(previous.taskId, body, {
+        agentId: body.createdBy?.agentId ?? body.agentId ?? previous.createdBy.agentId,
+        agentType: body.createdBy?.agentType ?? body.agentType ?? previous.createdBy.agentType,
+        requestId: previous.requestId,
+        planningRunId: previous.planningRunId,
+        supersedes: previous.id
+      });
+      return reply.code(201).send(await alignIfRequested(intent));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
   });
 
   app.get("/api/runs/:id/intent", async (request, reply) => {
@@ -332,17 +492,17 @@ function requiredBodyString(value: unknown, name: string): string {
   return value.trim();
 }
 
-function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentId: string): CreateRunRequest {
+function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentId: string, rawPrompt?: string): CreateRunRequest {
   const repo = body.repo as CreateRunRequest["repo"] | undefined;
   const agent = body.agent as CreateRunRequest["agent"] | undefined;
   const command = body.command as string[] | undefined;
   if (!repo?.path) throw new Error("repo.path is required for planner generation");
   if (!agent && !command?.length) throw new Error("agent or command is required for planner generation");
   const instruction = [
-    "Analyze the task without modifying the repository.",
+    "Analyze the task without modifying the repository; the workspace is mounted read-only and any write will fail the planning run.",
     "Emit exactly one AGENTGUARD_EVENT line with category agent, action intent, and metadata.intent.",
-    "The intent object must include goal, summary, plannedChanges, expectedFiles, expectedDependencies, expectedNetwork, expectedMcpServers, expectedSecrets, and constraints.",
-    typeof body.goal === "string" ? `Task: ${body.goal}` : ""
+    "The intent object must include goal, interpretation, plannedActions, expectedFiles, expectedDependencies, expectedCommands, expectedNetwork, expectedMcpServers, expectedSecrets, expectedTools, constraints, and optionally assumptions.",
+    rawPrompt ? `Human request: ${rawPrompt}` : typeof body.goal === "string" ? `Task: ${body.goal}` : ""
   ].filter(Boolean).join(" ");
   return {
     taskId,

@@ -110,6 +110,19 @@ The deterministic demo:
 
 The script prints the builder run, finding, reviews, resolution, and final dashboard summary. `jq` is required.
 
+## Intent Observability Demo
+
+`npm run demo:intent` runs the full request → intent → permissions → behavior → result chain without a running server or sandbox runtime (it drives the HTTP API in-process and uses the opt-in, unsandboxed `process` runtime provider). Set `AGENTGUARD_RUNTIME_PROVIDER=lima` or `docker` to run the same demo inside a real sandbox.
+
+1. persists the human request ("Fix the login/session bug … Do not modify database or infrastructure configuration. Do not add external dependencies.") and its deterministic analysis,
+2. runs a read-only planner that declares structured intent, then compares request ↔ intent (aligned),
+3. runs a builder that fixes `src/auth/session.js`, adds a regression test, runs `npm test`, and intentionally edits `infra/prod.tf` and adds `axios`,
+4. produces independently observed intent → behavior findings for the two drifts through the existing telemetry/finding pipeline,
+5. reviews, resolves both findings in resolver runs, re-reviews, and records approval,
+6. prints the behavior summary with telemetry coverage, the alignment summary, the result summary, and the unified timeline.
+
+Design and reconciliation notes: `docs/intent-observability-spec.md`.
+
 ## Agent Compatibility
 
 AgentGuard is agent-agnostic at the runtime boundary. Any AI coding agent can run if it can be launched as a non-interactive command inside the selected base VM.

@@ -98,6 +98,7 @@ function normalizeResource(resource?: string): string | undefined {
 
 function pathWithinPermission(resource: string, permissionPath: string): boolean {
   const normalizedPermission = normalizeResource(permissionPath) ?? permissionPath;
+  if (["/workspace", "/workspace/", ".", ""].includes(normalizedPermission)) return true;
   return resource === normalizedPermission || resource.startsWith(`${normalizedPermission.replace(/\/$/, "")}/`);
 }
 

@@ -29,9 +29,13 @@ limactl shell "${base_vm}" sudo env DEBIAN_FRONTEND=noninteractive apt-get insta
 
 limactl copy "${repo_root}/runtime/demo-agent.sh" "${base_vm}:/tmp/agentguard-demo-agent"
 limactl copy "${repo_root}/runtime/phase2-demo-agent.sh" "${base_vm}:/tmp/agentguard-phase2-demo-agent"
+limactl copy "${repo_root}/runtime/intent-demo-planner.sh" "${base_vm}:/tmp/agentguard-intent-demo-planner"
+limactl copy "${repo_root}/runtime/intent-demo-builder.sh" "${base_vm}:/tmp/agentguard-intent-demo-builder"
 limactl copy "${repo_root}/runtime/devin-agentguard-bridge.sh" "${base_vm}:/tmp/devin-agentguard-bridge"
 limactl shell "${base_vm}" sudo install -m 0755 /tmp/agentguard-demo-agent /usr/local/bin/agentguard-demo-agent
 limactl shell "${base_vm}" sudo install -m 0755 /tmp/agentguard-phase2-demo-agent /usr/local/bin/agentguard-phase2-demo-agent
+limactl shell "${base_vm}" sudo install -m 0755 /tmp/agentguard-intent-demo-planner /usr/local/bin/agentguard-intent-demo-planner
+limactl shell "${base_vm}" sudo install -m 0755 /tmp/agentguard-intent-demo-builder /usr/local/bin/agentguard-intent-demo-builder
 limactl shell "${base_vm}" sudo install -m 0755 /tmp/devin-agentguard-bridge /usr/local/bin/devin-agentguard-bridge
 limactl stop "${base_vm}"
 

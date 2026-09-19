@@ -4,6 +4,7 @@ import { normalizeDependency, normalizeExpectedFile, normalizeHostname, normaliz
 import type { FindingDraft } from "../findings/findingService.js";
 import { FindingService } from "../findings/findingService.js";
 import { JsonStore } from "../store/jsonStore.js";
+import { IntentBehaviorAnalyzer } from "./intentBehaviorAnalyzer.js";
 
 export interface BehaviorAnalysis {
   summary: BehaviorSummary;
@@ -48,6 +49,7 @@ export class BehaviorAnalyzer {
           severity: "medium",
           title: "Unexpected dependency added",
           description: `The builder added '${name}' outside the declared dependency plan.`,
+          file: run.gitSummary?.dependencyChanges.find((change) => normalizeDependency(change.name) === name)?.manifest,
           evidence: {
             eventIds: dependency.eventIds,
             observedResource: name,
@@ -148,12 +150,20 @@ export class BehaviorAnalyzer {
   }
 }
 
+export interface RunBehaviorAnalyzer {
+  analyze(run: RunRecord, intent: AgentIntent, events: AgentEvent[]): BehaviorAnalysis;
+}
+
 export class BehaviorAnalysisService {
+  private readonly analyzer: RunBehaviorAnalyzer;
+
   constructor(
     private readonly store: JsonStore,
     private readonly findings: FindingService,
-    private readonly analyzer = new BehaviorAnalyzer()
-  ) {}
+    analyzer?: RunBehaviorAnalyzer
+  ) {
+    this.analyzer = analyzer ?? new IntentBehaviorAnalyzer();
+  }
 
   async analyzeRun(runId: string): Promise<BehaviorAnalysis> {
     const run = await this.store.getRun(runId);

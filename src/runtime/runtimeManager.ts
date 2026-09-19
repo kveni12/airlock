@@ -1,7 +1,7 @@
 import { cp, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { CreateRunRequest, GitSummary, PermissionSnapshot, RunRecord, RunStatus } from "../types.js";
+import type { CreateRunRequest, GitSummary, PermissionSnapshot, RunRecord, RunStatus, RuntimeProviderKind } from "../types.js";
 import { AGENT_PROFILES, resolveAgent } from "../agents/agentAdapter.js";
 import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
@@ -19,10 +19,11 @@ import {
 import { createId } from "../utils/id.js";
 import { DockerProvider } from "./dockerProvider.js";
 import { LimaProvider } from "./limaProvider.js";
+import { ProcessProvider } from "./processProvider.js";
 import type { SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 
 export interface RuntimeManagerOptions {
-  defaultProvider?: "lima" | "docker";
+  defaultProvider?: RuntimeProviderKind;
   image?: string;
   baseVm?: string;
   workspaceRoot?: string;
@@ -32,7 +33,7 @@ export interface RuntimeManagerOptions {
 }
 
 export class RuntimeManager {
-  private readonly providers: Record<"lima" | "docker", SandboxProvider>;
+  private readonly providers: Record<RuntimeProviderKind, SandboxProvider>;
   private readonly active = new Map<string, { provider?: SandboxProvider; handle?: SandboxHandle; stopping: boolean }>();
 
   constructor(
@@ -42,7 +43,8 @@ export class RuntimeManager {
   ) {
     this.providers = {
       lima: new LimaProvider({ baseVm: options.baseVm, pidsLimit: options.pidsLimit }),
-      docker: new DockerProvider(options)
+      docker: new DockerProvider(options),
+      process: new ProcessProvider()
     };
   }
 
@@ -77,6 +79,8 @@ export class RuntimeManager {
       expectedFiles: request.expectedFiles ?? [],
       cleanupWorkspace: request.cleanupWorkspace ?? !(request.intentId || request.intent || request.purpose === "resolver"),
       intentId: request.intentId,
+      requestId: request.requestId,
+      workspaceAccess: request.purpose === "planner" ? "read_only" : "read_write",
       purpose: request.purpose ?? "builder",
       parentRunId: request.parentRunId
     };
@@ -256,13 +260,29 @@ export class RuntimeManager {
       await fsMonitor.reconcile();
       const gitSummary = await this.finishTelemetry(run, workspacePath, beforeGit, beforeDependencies);
       const active = this.active.get(run.id);
-      const finalStatus: RunStatus = active?.stopping ? "stopped" : exitCode === 0 ? "completed" : "failed";
+      let finalStatus: RunStatus = active?.stopping ? "stopped" : exitCode === 0 ? "completed" : "failed";
+      let planningViolation: string | undefined;
+      if (run.workspaceAccess === "read_only" && gitSummary.files.length > 0) {
+        planningViolation = `Planning workspace was modified despite read-only access: ${gitSummary.files.join(", ")}`;
+        finalStatus = "failed";
+        await this.events.emitEvent({
+          runId: run.id,
+          taskId: run.taskId,
+          agentId: run.agentId,
+          category: "runtime",
+          action: "planning_workspace_modified",
+          severity: "high",
+          allowed: false,
+          metadata: { files: gitSummary.files }
+        });
+      }
       await this.store.setGitSummary(run.id, gitSummary);
       await this.store.updateRun(run.id, {
         status: finalStatus,
         completedAt: new Date().toISOString(),
         exitCode,
-        failureReason: exitCode === 0 || finalStatus === "stopped" ? undefined : `Agent command exited with code ${exitCode}`
+        failureReason:
+          planningViolation ?? (exitCode === 0 || finalStatus === "stopped" ? undefined : `Agent command exited with code ${exitCode}`)
       });
 
       await this.events.emitEvent({
@@ -448,8 +468,9 @@ function validateCreateRun(request: CreateRunRequest): void {
   }
 }
 
-function defaultProvider(): "lima" | "docker" {
-  return process.env.AGENTGUARD_RUNTIME_PROVIDER === "docker" ? "docker" : "lima";
+function defaultProvider(): RuntimeProviderKind {
+  const configured = process.env.AGENTGUARD_RUNTIME_PROVIDER;
+  return configured === "docker" || configured === "process" ? configured : "lima";
 }
 
 function resolveSecretEnvironment(permissions: PermissionSnapshot): Record<string, string> {

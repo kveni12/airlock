@@ -76,6 +76,7 @@ export interface CreateRunRequest {
   runtime?: RuntimeConfig;
   intent?: AgentIntentDraft;
   intentId?: string;
+  requestId?: string;
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
 }
@@ -83,20 +84,47 @@ export interface CreateRunRequest {
 export interface AgentIntentDraft {
   goal: string;
   summary?: string;
-  plannedChanges: string[];
+  interpretation?: string;
+  /** Canonical list of planned actions. `plannedActions` is accepted as an alias on input. */
+  plannedChanges?: string[];
+  plannedActions?: string[];
   expectedFiles: string[];
   expectedDependencies?: string[];
+  expectedCommands?: string[];
   expectedNetwork?: string[];
   expectedMcpServers?: string[];
+  expectedTools?: string[];
   expectedSecrets?: string[];
   constraints: string[];
+  assumptions?: string[];
   createdBy?: { agentId: string; agentType: string };
+}
+
+export type AlignmentStatus = "aligned" | "warning" | "conflict";
+
+export interface IntentAlignment {
+  status: AlignmentStatus;
+  findingIds: string[];
+  analyzedAt: string;
+}
+
+export interface IntentApproval {
+  status: "approved" | "rejected";
+  actor?: string;
+  reason?: string;
+  at: string;
 }
 
 export interface AgentIntent extends Omit<Required<AgentIntentDraft>, "createdBy"> {
   id: string;
   taskId: string;
   runId?: string;
+  requestId?: string;
+  planningRunId?: string;
+  alignment?: IntentAlignment;
+  approval?: IntentApproval;
+  supersedes?: string;
+  supersededBy?: string;
   createdBy: { agentId: string; agentType: string };
   createdAt: string;
 }
@@ -131,8 +159,11 @@ export interface AgentProfile {
   executionMode?: "sandbox_cli" | "container_cli" | "bridge";
 }
 
+export type RuntimeProviderKind = "lima" | "docker" | "process";
+
 export interface RuntimeConfig {
-  provider?: "lima" | "docker";
+  /** `process` runs the agent unsandboxed as a local child process (demos/CI only; no isolation). */
+  provider?: RuntimeProviderKind;
   /** Reusable Lima VM that is cloned for a run. */
   baseVm?: string;
   /** Docker image used only when provider is `docker`. */
@@ -176,7 +207,7 @@ export interface RunRecord {
   containerName?: string;
   sandboxId?: string | null;
   sandboxName?: string;
-  runtimeProvider: "lima" | "docker";
+  runtimeProvider: RuntimeProviderKind;
   status: RunStatus;
   createdAt: string;
   startedAt?: string;
@@ -196,11 +227,13 @@ export interface RunRecord {
   cleanupWorkspace: boolean;
   gitSummary?: GitSummary;
   intentId?: string;
+  requestId?: string;
+  workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
 }
 
-export type FindingSource = "policy" | "intent_comparison" | "reviewer";
+export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
 export type FindingType =
   | "security"
   | "spec_drift"
@@ -210,6 +243,7 @@ export type FindingType =
   | "tests"
   | "code_quality"
   | "sensitive_change"
+  | "missing_action"
   | "other";
 export type FindingStatus = "open" | "resolving" | "re_reviewing" | "resolved" | "dismissed";
 
@@ -218,12 +252,19 @@ export interface FindingEvidence {
   diffSnippet?: string;
   observedResource?: string;
   declaredResource?: string;
+  requestId?: string;
+  intentId?: string;
+  humanRequestExcerpt?: string;
+  agentIntentExcerpt?: string;
+  /** Strongest verification backing this finding; absence-of-evidence findings are always inferred. */
+  verification?: EvidenceVerification;
 }
 
 export interface Finding {
   id: string;
   taskId: string;
-  runId: string;
+  /** Absent only for request/intent findings created before any run exists. */
+  runId?: string;
   reviewId?: string;
   source: FindingSource;
   type: FindingType;
@@ -296,10 +337,154 @@ export interface BehaviorSummary {
   tests: Array<{ command: string; passed?: boolean; eventIds: string[] }>;
 }
 
+export interface HumanRequest {
+  id: string;
+  taskId: string;
+  runId?: string;
+  rawPrompt: string;
+  explicitConstraints?: string[];
+  requestedObjectives?: string[];
+  context?: {
+    attachments?: string[];
+    metadata?: Record<string, unknown>;
+  };
+  createdAt: string;
+}
+
+export type RequestProvenance = "explicit" | "inferred";
+
+export type RequestResourceCategory =
+  | "database"
+  | "infrastructure"
+  | "dependencies"
+  | "network"
+  | "secrets"
+  | "tests"
+  | "configuration"
+  | "other";
+
+export interface RequestStatement {
+  text: string;
+  provenance: RequestProvenance;
+  source: "prompt" | "caller" | "analyzer";
+  excerpt?: string;
+}
+
+export interface RequestResource {
+  resource: string;
+  category: RequestResourceCategory;
+  provenance: RequestProvenance;
+  excerpt: string;
+}
+
+export interface RequestAnalysis {
+  id: string;
+  requestId: string;
+  objectives: RequestStatement[];
+  explicitConstraints: RequestStatement[];
+  inferredExpectations: RequestStatement[];
+  explicitlyRequestedResources: RequestResource[];
+  explicitlyForbiddenResources: RequestResource[];
+  ambiguities: string[];
+  analyzer: "deterministic";
+  createdAt: string;
+}
+
+export interface AlignmentSegment {
+  status: AlignmentStatus;
+  findingIds: string[];
+  /** Why the segment has its status, or why it could not be evaluated. */
+  detail: string;
+}
+
+export interface AlignmentSummary {
+  runId: string;
+  requestId?: string;
+  intentId?: string;
+  requestToIntent: AlignmentSegment;
+  intentToBehavior: AlignmentSegment;
+  behaviorToResult?: AlignmentSegment;
+  counts: {
+    undeclaredFiles: number;
+    undeclaredDependencies: number;
+    undeclaredNetworkDestinations: number;
+    undeclaredTools: number;
+    missingExpectedActions: number;
+  };
+}
+
+export interface ResultSummary {
+  runId: string;
+  status: RunStatus;
+  exitCode?: number | null;
+  failureReason?: string;
+  filesChanged: string[];
+  insertions: number;
+  deletions: number;
+  dependenciesChanged: GitSummary["dependencyChanges"];
+  commits: GitSummary["commits"];
+  tests: Array<{ command: string; passed?: boolean; eventIds: string[]; verification: EvidenceVerification }>;
+  review?: {
+    reviewId: string;
+    status: Review["status"];
+    filesTotal: number;
+    filesReviewed: number;
+    filesWithFindings: number;
+    findingIds: string[];
+    approvedAt?: string;
+    approval?: Review["approval"];
+  };
+  findings: { total: number; open: number; resolved: number; dismissed: number };
+  approvalStatus: "approved" | "needs_human" | "pending" | "not_reviewed";
+}
+
+export type TimelineEntryKind =
+  | "human.request"
+  | "request.analysis"
+  | "agent.intent"
+  | "intent.analysis"
+  | "intent.approval"
+  | "runtime"
+  | "filesystem"
+  | "process"
+  | "network"
+  | "mcp"
+  | "git"
+  | "agent"
+  | "policy"
+  | "finding.created"
+  | "review"
+  | "resolution"
+  | "approval";
+
+export interface TimelineEntry {
+  id: string;
+  timestamp: string;
+  kind: TimelineEntryKind;
+  actor: "human" | "agent" | "agentguard" | "runtime" | "reviewer" | "resolver";
+  title: string;
+  detail?: string;
+  severity?: EventSeverity;
+  evidenceSource?: EvidenceSource;
+  verification?: EvidenceVerification;
+  refs: {
+    eventId?: string;
+    requestId?: string;
+    intentId?: string;
+    findingId?: string;
+    findingIds?: string[];
+    reviewId?: string;
+    resolutionId?: string;
+    runId?: string;
+  };
+}
+
 export interface StoredData {
   runs: RunRecord[];
   events: AgentEvent[];
   permissions: Record<string, PermissionSnapshot>;
+  requests: HumanRequest[];
+  requestAnalyses: RequestAnalysis[];
   intents: AgentIntent[];
   findings: Finding[];
   reviews: Review[];
