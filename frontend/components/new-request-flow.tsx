@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ArrowDown, Check } from "lucide-react";
-import { approveIntent, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
-import type { AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { useEffect, useState } from "react";
+import { ArrowDown, Check, ShieldAlert, ShieldCheck } from "lucide-react";
+import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
+import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
+import { AccessScopeEditor, DEFAULT_SCOPE, normalizeFolder, scopeToPermissions, summarizeScope, type AccessScope } from "./access-scope";
 import { FindingCard } from "./finding-card";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
@@ -25,7 +26,6 @@ const DEMO_INTENT: AgentIntentDraft = {
   constraints: ["Do not modify database or infrastructure configuration", "Do not add external dependencies"]
 };
 
-const lines = (value: string) => value.split("\n").map((l) => l.trim()).filter(Boolean);
 const shell = (value: string) => value.trim() ? ["/bin/sh", "-c", value.trim()] : undefined;
 
 /** "script" = run an explicit shell command (demo scripts); otherwise a backend agent adapter kind. */
@@ -48,7 +48,8 @@ export function NewRequestFlow() {
   const [builderCommand, setBuilderCommand] = useState("sh runtime/intent-demo-builder.sh");
   const [agentChoice, setAgentChoice] = useState<AgentChoice>("script");
   const [agentBinary, setAgentBinary] = useState("");
-  const [secretNames, setSecretNames] = useState("");
+  const [scope, setScope] = useState<AccessScope>(DEFAULT_SCOPE);
+  const [accessGaps, setAccessGaps] = useState<AccessGapReport | null>(null);
   const profiles = useResource<AgentProfile[]>((signal) => getAgentProfiles(signal), 60_000);
   const selectedProfile = profiles.data?.find((p) => p.kind === agentChoice);
   const usingRealAgent = agentChoice !== "script";
@@ -57,7 +58,7 @@ export function NewRequestFlow() {
   const chooseAgent = (choice: AgentChoice) => {
     setAgentChoice(choice);
     const profile = profiles.data?.find((p) => p.kind === choice);
-    setSecretNames(profile ? profile.recommendedSecrets.join("\n") : "");
+    setScope((s) => ({ ...s, secrets: profile ? [...profile.recommendedSecrets] : [] }));
     if (choice !== "script") {
       setAgentId((id) => (id === "demo-planner" ? `${choice}-planner` : id));
       setBuilderAgentId((id) => (id === "demo-builder" ? `${choice}-builder` : id));
@@ -71,12 +72,32 @@ export function NewRequestFlow() {
   const [intent, setIntent] = useState<AgentIntent | null>(null);
   const [alignment, setAlignment] = useState<IntentAlignmentResponse | null>(null);
 
-  const [fsAccess, setFsAccess] = useState<"read" | "read_write">("read_write");
-  const [network, setNetwork] = useState("");
-  const [tools, setTools] = useState("filesystem\nshell");
   const [error, setError] = useState<string | null>(null);
 
   const refreshAlignment = async (id: string) => setAlignment(await getIntentAlignment(id));
+
+  useEffect(() => {
+    if (!intent) { setAccessGaps(null); return; }
+    let cancelled = false;
+    checkIntentAccess(intent.id, scopeToPermissions(scope, "builder")).then((report) => { if (!cancelled) setAccessGaps(report); }).catch(() => { if (!cancelled) setAccessGaps(null); });
+    return () => { cancelled = true; };
+  }, [intent, scope]);
+
+  const grant = (gap: AccessGap) => setScope((s) => {
+    switch (gap.kind) {
+      case "filesystem_write": {
+        const isGlob = /\*/.test(gap.requested);
+        const folder = isGlob ? gap.requested.replace(/\/?[^/]*\*.*$/, "") : gap.requested.replace(/\/?[^/]*$/, "");
+        const path = normalizeFolder(folder || "/workspace");
+        const folders = s.folders.some((f) => f.path === path) ? s.folders.map((f) => f.path === path ? { ...f, access: "read_write" as const } : f) : [...s.folders, { path, access: "read_write" as const }];
+        return { ...s, folders };
+      }
+      case "network": return { ...s, hosts: [...s.hosts, gap.requested] };
+      case "secret": return { ...s, secrets: [...s.secrets, gap.requested] };
+      case "mcp_server": return { ...s, mcpServers: [...s.mcpServers, gap.requested] };
+      case "tool": return { ...s, tools: [...s.tools, gap.requested] };
+    }
+  });
 
   const submitRequest = async () => {
     setError(null);
@@ -98,7 +119,7 @@ export function NewRequestFlow() {
         repo: { path: repoPath },
         agent: agentConfig(),
         command: usingRealAgent ? undefined : shell(plannerCommand),
-        permissions: { filesystem: [{ path: "/workspace", access: "read" }], secrets: lines(secretNames) },
+        permissions: scopeToPermissions(scope, "planner"),
         runtime: { provider },
         timeoutMs
       });
@@ -122,7 +143,7 @@ export function NewRequestFlow() {
       runtime: { provider },
       requestId: requestResult?.request.id,
       intentId: intent.id,
-      permissions: { filesystem: [{ path: "/workspace", access: fsAccess }], network: lines(network), secrets: lines(secretNames), mcpServers: [], tools: lines(tools) },
+      permissions: scopeToPermissions(scope, "builder"),
       timeoutMs
     });
     router.push(`/workbench/${runId}`);
@@ -151,7 +172,6 @@ export function NewRequestFlow() {
         </select>
       </label>
       {usingRealAgent && <label className="block text-sm"><span className={labelCls}>Agent binary (optional override)</span><input value={agentBinary} onChange={(e) => setAgentBinary(e.target.value)} placeholder={selectedProfile ? `default: ${agentChoice === "claude_code" ? "claude" : agentChoice === "cursor" ? "agent" : agentChoice}` : ""} className={inputCls} /></label>}
-      <label className="block text-sm md:col-span-2"><span className={labelCls}>Secrets to inject (env var names, one per line — values are read from the backend process env, never stored)</span><textarea value={secretNames} onChange={(e) => setSecretNames(e.target.value)} rows={2} className={inputCls} /></label>
     </div>
     {agentChoice === "devin" && <p className="text-xs text-[#657068]">Devin works in its own cloud VM, so Periscope cannot observe it directly. The bridge starts a Devin session via the API (needs <span className="mono">DEVIN_API_KEY</span>); the planner returns structured intent, the builder pushes its work to branch <span className="mono">agentguard/&lt;run id&gt;</span> of the repo&apos;s <span className="mono">origin</span> (Devin needs push access), which is then applied to the workspace and diffed. Devin&apos;s messages are agent-reported evidence.</p>}
     {usingRealAgent && selectedProfile && <p className="text-xs text-[#657068]">{selectedProfile.description} {provider === "lima" && !selectedProfile.runtimeReady && <span className="text-[#9a3d31]">Lima base VM <span className="mono">{selectedProfile.defaultBaseVm}</span> not found — run <span className="mono">npm run vm:setup-agent -- {agentChoice}</span> or switch runtime.</span>}</p>}
@@ -183,6 +203,7 @@ export function NewRequestFlow() {
       {!requestResult ? <p className="text-sm text-[#657068]">Record the request first.</p> : !intent ? <div className="space-y-3">
         <div className="flex gap-2">{(["manual", "planner"] as const).map((m) => <button key={m} onClick={() => setIntentMode(m)} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${intentMode === m ? "border-[#101913] bg-[#101913] text-white" : "bg-white text-[#657068]"}`}>{m === "manual" ? "Paste structured intent" : "Run planner in read-only sandbox"}</button>)}</div>
         {agentWorkspaceFields}
+        <AccessScopeEditor scope={scope} onChange={setScope} provider={provider} plannerOnly={intentMode === "planner"} />
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner agent id</span><input value={agentId} onChange={(e) => setAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
           {intentMode === "planner" && !usingRealAgent && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
@@ -199,6 +220,18 @@ export function NewRequestFlow() {
           <KeyValue label="Constraints"><Chips items={intent.constraints} mono={false} /></KeyValue>
           {intent.planningRunId && <KeyValue label="Planning run"><Link className="underline" href={`/runs/${intent.planningRunId}`}>{intent.planningRunId}</Link> (read-only workspace)</KeyValue>}
         </dl>
+        <div className="rounded-xl border bg-[#f7f9f4] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Does the plan fit the access scope?</p>{accessGaps && (accessGaps.gaps.length ? <span className="status status-warn"><ShieldAlert className="mr-1 size-3.5" />{accessGaps.gaps.length} more access needed</span> : <span className="status status-good"><ShieldCheck className="mr-1 size-3.5" />fits</span>)}</div>
+          {!accessGaps && <p className="mt-2 text-sm text-[#657068]">Checking…</p>}
+          {accessGaps && accessGaps.gaps.length === 0 && <p className="mt-2 text-sm text-[#657068]">Everything the agent says it needs is already allowed. Nothing extra is granted.</p>}
+          {accessGaps && accessGaps.gaps.length > 0 && <>
+            <p className="mt-2 text-xs text-[#657068]">These come from the agent&apos;s own plan (agent-reported). Grant only what you agree with — anything you leave denied is {""}<em>blocked</em> (network, secrets) or <em>flagged</em> in the workbench if the agent tries anyway.</p>
+            <ul className="mt-3 space-y-2">{accessGaps.gaps.map((gap) => <li key={`${gap.kind}:${gap.requested}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
+              <span><span className="mono font-semibold">{gap.requested}</span> <span className="text-[#657068]">— {gap.reason}</span> <span className={`status ${gap.enforcement === "blocked" ? "status-good" : gap.enforcement === "flagged" ? "status-warn" : "status-muted"}`}>{gap.enforcement === "blocked" ? "blocked if denied" : gap.enforcement === "flagged" ? "flagged if attempted" : "agent-reported only"}</span></span>
+              <ActionButton variant="secondary" onClick={() => grant(gap)}>Grant</ActionButton>
+            </li>)}</ul>
+          </>}
+        </div>
         <div className="rounded-xl border bg-[#f7f9f4] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Request → Intent comparison</p><AlignmentBadge status={alignment?.alignment?.status} /></div>
           {alignment && alignment.findings.length === 0 && <p className="mt-2 text-sm text-[#657068]">No pre-execution findings. The declared intent does not contradict any explicit constraint or miss a requested objective.</p>}
@@ -222,9 +255,12 @@ export function NewRequestFlow() {
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Builder agent id</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
           {usingRealAgent ? <p className="text-sm text-[#657068] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Workspace access</span><select value={fsAccess} onChange={(e) => setFsAccess(e.target.value as "read" | "read_write")} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"><option value="read_write">/workspace read + write</option><option value="read">/workspace read only</option></select></label>
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Network allowlist (one host per line)</span><textarea value={network} onChange={(e) => setNetwork(e.target.value)} rows={2} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Tools (one per line)</span><textarea value={tools} onChange={(e) => setTools(e.target.value)} rows={2} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
+        </div>
+        <div className="rounded-xl border bg-[#f7f9f4] p-4">
+          <p className="text-sm font-semibold">The run will start with exactly this access</p>
+          <ul className="mt-2 space-y-0.5 text-sm">{summarizeScope(scope, provider).map((line) => <li key={line}>{line}</li>)}</ul>
+          {accessGaps && accessGaps.gaps.length > 0 && <p className="mt-2 text-xs text-[#815017]">{accessGaps.gaps.length} item{accessGaps.gaps.length === 1 ? "" : "s"} from the plan {accessGaps.gaps.length === 1 ? "is" : "are"} still denied — that is fine if intentional; attempts will show up as out-of-scope in the workbench.</p>}
+          <details className="mt-2 text-sm"><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-[#657068]">Adjust scope</summary><div className="mt-2"><AccessScopeEditor scope={scope} onChange={setScope} provider={provider} /></div></details>
         </div>
         {blocked && <p className="text-sm text-[#9a3d31]">{blocked}</p>}
         <ActionButton disabled={Boolean(blocked)} onClick={async () => { try { await startRun(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Start execution run</ActionButton>

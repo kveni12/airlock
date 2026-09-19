@@ -60,3 +60,16 @@ describe("PolicyEngine", () => {
     expect(violations[0].metadata?.rule).toBe("network_scope");
   });
 });
+
+describe("PolicyEngine read-only scope", () => {
+  it("flags writes to paths that are only granted read access", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "read" }, { path: "/workspace/tests", access: "read_write" }] }
+    }));
+    const base = { id: "e", runId: "r", taskId: "t", agentId: "a", timestamp: new Date().toISOString(), category: "filesystem" as const, action: "write" };
+    const denied = await engine.evaluate({ ...base, resource: "/workspace/src/app.js" });
+    expect(denied.map((event) => event.metadata?.rule)).toContain("permission_scope");
+    const allowed = await engine.evaluate({ ...base, resource: "/workspace/tests/app.test.js" });
+    expect(allowed.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
+  });
+});
