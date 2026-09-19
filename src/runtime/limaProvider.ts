@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
+import type { SandboxCreateOptions, SandboxHandle, SandboxProvider, WorkspaceMounts } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
 import { LineDecoder } from "../telemetry/lineDecoder.js";
 
@@ -26,6 +26,10 @@ export class LimaProvider implements SandboxProvider {
 
   constructor(private readonly options: LimaProviderOptions = {}) {}
 
+  filesystemScope(mounts: WorkspaceMounts): "enforced" | "observed" {
+    return mounts.root === "ro" && mounts.writable.length === 0 ? "enforced" : "observed";
+  }
+
   async isBaseAvailable(baseVm: string): Promise<boolean> {
     try {
       await runCommand(this.binary, ["list", baseVm, "--format", "json"]);
@@ -39,14 +43,17 @@ export class LimaProvider implements SandboxProvider {
     const name = limaName(options.run.id);
     const baseVm = options.run.runtimeBaseVm ?? this.options.baseVm ?? "agentguard-base";
     await runCommand(this.binary, ["list", baseVm, "--format", "json"], `Lima base VM '${baseVm}' is unavailable. Run npm run vm:setup first.`);
+    // Lima mounts are host-path-shaped and must not overlap, so per-folder writable overlays cannot be
+    // expressed: the whole workspace is read-only (planner) or writable, and out-of-scope writes are
+    // caught afterwards in the writable case (see filesystemScope).
+    const mountArgs = ["--mount-only", limaMountSpec(options.workspacePath, options.mounts)];
     await runCommand(
       this.binary,
       [
         "clone",
         baseVm,
         name,
-        "--mount-only",
-        options.run.workspaceAccess === "read_only" ? options.workspacePath : `${options.workspacePath}:w`,
+        ...mountArgs,
         "--mount-inotify",
         "--cpus",
         String(this.options.cpus ?? 2),
@@ -174,4 +181,9 @@ async function runCommand(
       else reject(new Error(`${errorPrefix ?? "Lima command failed"}: ${stderr.trim() || `exit code ${code}`}`));
     });
   });
+}
+
+/** `<host path>` mounts read-only, `<host path>:w` writable; a partial overlay widens to writable. */
+export function limaMountSpec(workspacePath: string, mounts: WorkspaceMounts): string {
+  return mounts.root === "ro" && mounts.writable.length === 0 ? workspacePath : `${workspacePath}:w`;
 }

@@ -21,6 +21,7 @@ import { DockerProvider } from "./dockerProvider.js";
 import { LimaProvider } from "./limaProvider.js";
 import { ProcessProvider } from "./processProvider.js";
 import type { SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
+import { planWorkspaceMounts } from "./sandboxProvider.js";
 
 export interface RuntimeManagerOptions {
   defaultProvider?: RuntimeProviderKind;
@@ -171,6 +172,8 @@ export class RuntimeManager {
         });
       }
 
+      provider = this.providers[run.runtimeProvider];
+      const mounts = await planWorkspaceMounts(run, workspacePath, permissions);
       await this.events.emitEvent({
         runId: run.id,
         taskId: run.taskId,
@@ -183,17 +186,21 @@ export class RuntimeManager {
           runtime: run.runtimeProvider === "lima" ? run.runtimeBaseVm : run.runtimeImage,
           workspace: "/workspace",
           proxyPort,
+          networkAllowlist: permissions.network ?? [],
+          workspaceMount: mounts.root,
+          writableMounts: mounts.writable,
+          filesystemScope: provider.filesystemScope(mounts),
           agentKind: run.agent?.kind ?? "generic",
           outputTelemetry: "jsonl_with_raw_fallback"
         }
       });
 
-      provider = this.providers[run.runtimeProvider];
-      outputMonitor = new AgentOutputMonitor(run, this.events);
-      const proxyHostname = provider.proxyHostname;
+      outputMonitor = new AgentOutputMonitor(run, this.events, { filesystemEnforced: provider.filesystemScope(mounts) === "enforced" });
+      const proxyHostname = provider.prepareNetwork ? await provider.prepareNetwork(run) : provider.proxyHostname;
       handle = await provider.create({
         run,
         workspacePath,
+        mounts,
         proxyUrl: networkProxy.getProxyUrl(proxyHostname),
         environment: {
           ...agentEnvironment,
@@ -306,6 +313,7 @@ export class RuntimeManager {
       await fsMonitor?.stop().catch(() => undefined);
       await networkProxy?.stop().catch(() => undefined);
       await this.cleanup(run.id, workspacePath, run.cleanupWorkspace, provider, handle);
+      if (!handle) await provider?.releaseNetwork?.(run).catch(() => undefined);
       this.events.clearSecrets(run.id);
     }
   }
@@ -478,10 +486,10 @@ function defaultProvider(): RuntimeProviderKind {
   return configured === "docker" || configured === "process" ? configured : "lima";
 }
 
-function resolveSecretEnvironment(permissions: PermissionSnapshot): Record<string, string> {
+export function resolveSecretEnvironment(permissions: PermissionSnapshot, source: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const secrets: Record<string, string> = {};
   for (const name of permissions.secrets ?? []) {
-    const value = process.env[name];
+    const value = source[name];
     if (value !== undefined) secrets[name] = value;
   }
   return secrets;

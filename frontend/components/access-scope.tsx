@@ -46,11 +46,12 @@ export function displayFolder(path: string): string {
 type Enforcement = { label: string; tone: "good" | "warn" | "neutral"; detail: string };
 
 function folderEnforcement(provider: RuntimeProviderKind): Enforcement {
-  if (provider === "process") return { tone: "warn", label: "not isolated", detail: "process runtime has no sandbox: the agent can read anything on this machine. Writes outside the allowed folders are flagged in the workbench, not prevented." };
-  return { tone: "good", label: "repo only", detail: "Only a temporary copy of this repo is mounted in the sandbox — the rest of your machine is not visible. Writes outside the folders you allow are flagged in the workbench; reads inside the repo cannot be traced." };
+  if (provider === "process") return { tone: "warn", label: "not isolated", detail: "process runtime has no sandbox: the agent can read anything on this machine (it only sees the environment variables you grant). Writes outside the allowed folders are flagged in the workbench afterwards, not prevented." };
+  if (provider === "lima") return { tone: "good", label: "repo only", detail: "Only a temporary copy of this repo is mounted in the VM — the rest of your machine is not visible. Lima cannot layer per-folder mounts, so if any folder is 'can change' the whole copy is writable and writes outside those folders are flagged in the workbench afterwards. Reads inside the repo cannot be traced." };
+  return { tone: "good", label: "enforced", detail: "Only a temporary copy of this repo is mounted in the sandbox — the rest of your machine is not visible. The copy is mounted read-only and only the folders you mark 'can change' are mounted writable, so writes elsewhere fail inside the sandbox (and are recorded as prevented). Reads inside the repo cannot be traced." };
 }
 
-const NETWORK_ENFORCEMENT: Enforcement = { tone: "good", label: "blocked", detail: "Hosts not on this list are refused by the Periscope proxy (HTTP/HTTPS via proxy env). Direct sockets that bypass the proxy cannot be observed." };
+const NETWORK_ENFORCEMENT: Enforcement = { tone: "good", label: "blocked", detail: "An empty list means no internet. Hosts not on the list are refused by the Periscope proxy (HTTP/HTTPS). In Docker the container has no route out except the proxy, so traffic that ignores the proxy is dropped; with the process runtime, direct sockets bypass the proxy and cannot be observed." };
 const SECRET_ENFORCEMENT: Enforcement = { tone: "good", label: "not injected", detail: "Only the named environment variables are copied into the sandbox from the backend process; anything else is simply absent." };
 const MCP_ENFORCEMENT: Enforcement = { tone: "neutral", label: "agent-reported", detail: "MCP usage is known only from the agent's own output. A server not listed here is flagged if the agent reports using it." };
 const TOOL_ENFORCEMENT: Enforcement = { tone: "neutral", label: "agent-reported", detail: "Tool use is known from the agent's output and process telemetry; unlisted tools are flagged, not prevented." };

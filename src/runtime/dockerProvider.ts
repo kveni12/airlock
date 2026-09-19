@@ -1,12 +1,15 @@
 import Docker from "dockerode";
 import type { Container } from "dockerode";
+import path from "node:path";
 import { PassThrough } from "node:stream";
-import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
+import type { SandboxCreateOptions, SandboxHandle, SandboxProvider, WorkspaceMounts } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
 import { LineDecoder } from "../telemetry/lineDecoder.js";
+import type { RunRecord } from "../types.js";
 
 interface DockerHandle extends SandboxHandle {
   container: Container;
+  networkName?: string;
   onOutput?: SandboxCreateOptions["onOutput"];
   stdoutDecoder?: LineDecoder;
   stderrDecoder?: LineDecoder;
@@ -22,13 +25,45 @@ export class DockerProvider implements SandboxProvider {
   readonly kind = "docker" as const;
   readonly proxyHostname = "host.docker.internal";
   private readonly docker = new Docker();
+  private readonly networks = new Map<string, { name: string; gateway: string }>();
 
   constructor(private readonly options: DockerProviderOptions = {}) {}
 
+  filesystemScope(): "enforced" {
+    return "enforced";
+  }
+
+  /**
+   * Each run gets its own `internal` bridge network: Docker gives it no route to the outside
+   * world, so the only way out is the Periscope proxy listening on the host at the bridge gateway.
+   * Agents that ignore HTTP(S)_PROXY therefore get "network unreachable" instead of a bypass.
+   */
+  async prepareNetwork(run: RunRecord): Promise<string> {
+    const name = `agentguard-net-${run.id}`;
+    const network = await this.docker.createNetwork({ Name: name, Driver: "bridge", Internal: true, Labels: { "agentguard.run": run.id } });
+    const info = await network.inspect() as { IPAM?: { Config?: Array<{ Gateway?: string }> } };
+    const gateway = info.IPAM?.Config?.find((config) => config.Gateway)?.Gateway;
+    if (!gateway) {
+      await network.remove().catch(() => undefined);
+      throw new Error(`Docker did not assign a gateway to network ${name}`);
+    }
+    this.networks.set(run.id, { name, gateway });
+    return gateway;
+  }
+
+  async releaseNetwork(run: RunRecord): Promise<void> {
+    const network = this.networks.get(run.id);
+    if (!network) return;
+    this.networks.delete(run.id);
+    await this.docker.getNetwork(network.name).remove().catch(() => undefined);
+  }
+
   async create(options: SandboxCreateOptions): Promise<DockerHandle> {
-    const { run, workspacePath, proxyUrl, environment } = options;
+    const { run, workspacePath, proxyUrl, environment, mounts } = options;
     const name = `agentguard-${run.id}`;
     const env = { ...runtimeEnvironment(proxyUrl), ...environment };
+    const network = this.networks.get(run.id);
+    const binds = dockerBinds(workspacePath, mounts);
     const container = await this.docker.createContainer({
       Image: run.runtimeImage ?? "agentguard-runtime:latest",
       name,
@@ -37,16 +72,16 @@ export class DockerProvider implements SandboxProvider {
       Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
       HostConfig: {
         AutoRemove: false,
-        Binds: [run.workspaceAccess === "read_only" ? `${workspacePath}:/workspace:ro` : `${workspacePath}:/workspace`],
+        Binds: binds,
         Memory: this.options.memoryBytes ?? 512 * 1024 * 1024,
         CpuShares: this.options.cpuShares ?? 512,
         PidsLimit: this.options.pidsLimit ?? 256,
         Privileged: false,
-        NetworkMode: "bridge",
+        NetworkMode: network?.name ?? "none",
         ReadonlyRootfs: false
       }
     });
-    return { id: container.id, name, container, onOutput: options.onOutput };
+    return { id: container.id, name, container, networkName: network?.name, onOutput: options.onOutput };
   }
 
   async start(handle: SandboxHandle): Promise<void> {
@@ -75,10 +110,24 @@ export class DockerProvider implements SandboxProvider {
   }
 
   async remove(handle: SandboxHandle): Promise<void> {
-    await asDockerHandle(handle).container.remove({ force: true }).catch(() => undefined);
+    const docker = asDockerHandle(handle);
+    await docker.container.remove({ force: true }).catch(() => undefined);
+    if (docker.networkName) {
+      await this.docker.getNetwork(docker.networkName).remove().catch(() => undefined);
+      for (const [runId, network] of this.networks) if (network.name === docker.networkName) this.networks.delete(runId);
+    }
   }
 }
 
 function asDockerHandle(handle: SandboxHandle): DockerHandle {
   return handle as DockerHandle;
+}
+
+/** Root bind read-only with each read_write grant layered on top as a writable bind of the same path. */
+export function dockerBinds(workspacePath: string, mounts: WorkspaceMounts): string[] {
+  const binds = [`${workspacePath}:/workspace${mounts.root === "ro" ? ":ro" : ""}`];
+  if (mounts.root === "ro") {
+    for (const relative of mounts.writable) binds.push(`${path.join(workspacePath, relative)}:${path.posix.join("/workspace", relative)}`);
+  }
+  return binds;
 }

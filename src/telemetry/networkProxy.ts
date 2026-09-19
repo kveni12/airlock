@@ -2,6 +2,7 @@ import http from "node:http";
 import net from "node:net";
 import { URL } from "node:url";
 import type { EventCollector } from "../events/eventCollector.js";
+import { hostAllowed } from "../policy/policyEngine.js";
 import type { RunRecord } from "../types.js";
 
 export class NetworkProxy {
@@ -79,13 +80,16 @@ export class NetworkProxy {
     );
 
     upstream.on("error", () => {
-      response.writeHead(502);
+      if (!response.headersSent) response.writeHead(502);
       response.end("Periscope proxy upstream error");
     });
+    request.on("error", () => upstream.destroy());
+    response.on("close", () => upstream.destroy());
     request.pipe(upstream);
   }
 
   private async handleConnect(request: http.IncomingMessage, clientSocket: net.Socket, head: Buffer): Promise<void> {
+    clientSocket.on("error", () => clientSocket.destroy());
     const [hostname, portText] = (request.url ?? "").split(":");
     const port = Number(portText) || 443;
     const allowed = this.isAllowed(hostname);
@@ -104,11 +108,12 @@ export class NetworkProxy {
       clientSocket.pipe(upstreamSocket);
     });
     upstreamSocket.on("error", () => clientSocket.destroy());
+    clientSocket.on("close", () => upstreamSocket.destroy());
   }
 
+  /** Deny by default: an empty allowlist means the agent has no network access. */
   private isAllowed(hostname: string): boolean {
-    if (!this.allowedHosts.length) return true;
-    return this.allowedHosts.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+    return hostAllowed(hostname, this.allowedHosts);
   }
 
   private async emitNetworkEvent(hostname: string, allowed: boolean, port: number): Promise<void> {
