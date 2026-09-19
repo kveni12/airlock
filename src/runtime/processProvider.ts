@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import path from "node:path";
 import { LineDecoder } from "../telemetry/lineDecoder.js";
 import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
@@ -35,6 +36,7 @@ export class ProcessProvider implements SandboxProvider {
         ...process.env,
         ...runtimeEnvironment(proxyUrl),
         ...environment,
+        PATH: `${path.resolve("runtime")}${path.delimiter}${process.env.PATH ?? ""}`,
         AGENTGUARD_WORKSPACE: workspacePath,
         AGENTGUARD_WORKSPACE_ACCESS: run.workspaceAccess ?? "read_write"
       },

@@ -195,7 +195,12 @@ export class RuntimeManager {
         run,
         workspacePath,
         proxyUrl: networkProxy.getProxyUrl(proxyHostname),
-        environment: agentEnvironment,
+        environment: {
+          ...agentEnvironment,
+          AGENTGUARD_RUN_ID: run.id,
+          AGENTGUARD_RUN_PURPOSE: run.purpose ?? "builder",
+          AGENTGUARD_WORKSPACE_ACCESS: run.workspaceAccess ?? "read_write"
+        },
         onOutput: (output) => outputMonitor?.observe(output)
       });
       this.active.set(run.id, { ...(this.active.get(run.id) ?? { stopping: false }), provider, handle });
