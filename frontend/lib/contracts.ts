@@ -373,10 +373,19 @@ export interface RunDetail {
   resolutions: ResolutionAttempt[];
 }
 
+export interface AgentProfileConfig {
+  kind: string;
+  prompt?: string;
+  binary?: string;
+  args?: string[];
+  command?: string[];
+}
+
 export interface CreateRunBody {
   taskId: string;
   agentId: string;
   repo: { path: string; branch?: string };
+  agent?: AgentProfileConfig;
   command?: string[];
   permissions?: PermissionSnapshot;
   expectedFiles?: string[];
@@ -392,7 +401,9 @@ export interface GenerateIntentBody {
   agentId: string;
   requestId?: string;
   repo?: { path: string; branch?: string };
+  agent?: AgentProfileConfig;
   command?: string[];
+  permissions?: PermissionSnapshot;
   runtime?: { provider: RuntimeProviderKind };
   timeoutMs?: number;
   structuredOutput?: unknown;

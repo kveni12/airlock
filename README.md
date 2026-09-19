@@ -22,6 +22,15 @@ npm run dev:all
 
 Then open `http://localhost:3001`. `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
 
+### Run a real agent on your own repository
+
+In the UI, open **New request**, record your prompt, then under **Agent & workspace** pick Claude Code / Codex / Cursor, point **Repo path** at any git checkout on the machine running the backend (e.g. `/Users/you/code/my-app`), and choose a runtime:
+
+- `lima` (recommended): disposable VM; run `npm run vm:setup-agent -- claude_code` (or `codex`, `cursor`) once.
+- `process`: no sandbox — the agent binary runs directly on your machine against a temporary copy of the repo. Your checkout is never mounted, but the agent has your machine's network and environment.
+
+Secrets are listed by env var name (e.g. `ANTHROPIC_API_KEY`) and resolved from the backend process environment, so export them before `npm run dev:all`. The planner phase runs the agent against a read-only copy with instructions to answer with the structured intent as JSON; the builder phase runs it with your prompt verbatim and compares what it does against that intent.
+
 ## Install
 
 ```bash

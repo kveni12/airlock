@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowDown, Check } from "lucide-react";
-import { approveIntent, createIntent, createRequest, createRun, generateIntent, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
-import type { AgentIntent, AgentIntentDraft, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { approveIntent, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
+import type { AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { useResource } from "@/lib/use-resource";
 import { FindingCard } from "./finding-card";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
@@ -27,6 +28,12 @@ const DEMO_INTENT: AgentIntentDraft = {
 const lines = (value: string) => value.split("\n").map((l) => l.trim()).filter(Boolean);
 const shell = (value: string) => value.trim() ? ["/bin/sh", "-c", value.trim()] : undefined;
 
+/** "script" = run an explicit shell command (demo scripts); otherwise a backend agent adapter kind. */
+type AgentChoice = "script" | string;
+const REAL_AGENT_TIMEOUT_MS = 20 * 60_000;
+const SCRIPT_TIMEOUT_MS = 120_000;
+const PICKABLE_KINDS = ["claude_code", "codex", "cursor", "devin"];
+
 export function NewRequestFlow() {
   const router = useRouter();
   const [taskId, setTaskId] = useState(`task-${Date.now().toString(36)}`);
@@ -37,13 +44,33 @@ export function NewRequestFlow() {
   const [agentId, setAgentId] = useState("demo-planner");
   const [repoPath, setRepoPath] = useState("fixtures/intent-demo-repo");
   const [provider, setProvider] = useState<RuntimeProviderKind>("process");
+  const [builderAgentId, setBuilderAgentId] = useState("demo-builder");
+  const [builderCommand, setBuilderCommand] = useState("sh runtime/intent-demo-builder.sh");
+  const [agentChoice, setAgentChoice] = useState<AgentChoice>("script");
+  const [agentBinary, setAgentBinary] = useState("");
+  const [secretNames, setSecretNames] = useState("");
+  const profiles = useResource<AgentProfile[]>((signal) => getAgentProfiles(signal), 60_000);
+  const selectedProfile = profiles.data?.find((p) => p.kind === agentChoice);
+  const usingRealAgent = agentChoice !== "script";
+  const timeoutMs = usingRealAgent ? REAL_AGENT_TIMEOUT_MS : SCRIPT_TIMEOUT_MS;
+
+  const chooseAgent = (choice: AgentChoice) => {
+    setAgentChoice(choice);
+    const profile = profiles.data?.find((p) => p.kind === choice);
+    setSecretNames(profile ? profile.recommendedSecrets.join("\n") : "");
+    if (choice !== "script") {
+      setAgentId((id) => (id === "demo-planner" ? `${choice}-planner` : id));
+      setBuilderAgentId((id) => (id === "demo-builder" ? `${choice}-builder` : id));
+    }
+  };
+
+  const agentConfig = (prompt?: string): AgentProfileConfig | undefined =>
+    usingRealAgent ? { kind: agentChoice, ...(agentBinary.trim() ? { binary: agentBinary.trim() } : {}), ...(prompt ? { prompt } : {}) } : undefined;
   const [plannerCommand, setPlannerCommand] = useState("sh runtime/intent-demo-planner.sh");
   const [intentJson, setIntentJson] = useState(JSON.stringify(DEMO_INTENT, null, 2));
   const [intent, setIntent] = useState<AgentIntent | null>(null);
   const [alignment, setAlignment] = useState<IntentAlignmentResponse | null>(null);
 
-  const [builderAgentId, setBuilderAgentId] = useState("demo-builder");
-  const [builderCommand, setBuilderCommand] = useState("sh runtime/intent-demo-builder.sh");
   const [fsAccess, setFsAccess] = useState<"read" | "read_write">("read_write");
   const [network, setNetwork] = useState("");
   const [tools, setTools] = useState("filesystem\nshell");
@@ -64,7 +91,17 @@ export function NewRequestFlow() {
     setError(null);
     let created: AgentIntent;
     if (intentMode === "planner") {
-      created = await generateIntent({ taskId, agentId, requestId: requestResult.request.id, repo: { path: repoPath }, command: shell(plannerCommand), runtime: { provider }, timeoutMs: 120_000 });
+      created = await generateIntent({
+        taskId,
+        agentId,
+        requestId: requestResult.request.id,
+        repo: { path: repoPath },
+        agent: agentConfig(),
+        command: usingRealAgent ? undefined : shell(plannerCommand),
+        permissions: { filesystem: [{ path: "/workspace", access: "read" }], secrets: lines(secretNames) },
+        runtime: { provider },
+        timeoutMs
+      });
     } else {
       const draft = JSON.parse(intentJson) as AgentIntentDraft;
       created = await createIntent({ ...draft, taskId, agentId, agentType: "human", requestId: requestResult.request.id });
@@ -80,17 +117,45 @@ export function NewRequestFlow() {
       taskId,
       agentId: builderAgentId,
       repo: { path: repoPath },
-      command: shell(builderCommand),
+      agent: agentConfig(requestResult?.request.rawPrompt ?? prompt),
+      command: usingRealAgent ? undefined : shell(builderCommand),
       runtime: { provider },
       requestId: requestResult?.request.id,
       intentId: intent.id,
-      permissions: { filesystem: [{ path: "/workspace", access: fsAccess }], network: lines(network), secrets: [], mcpServers: [], tools: lines(tools) },
-      timeoutMs: 120_000
+      permissions: { filesystem: [{ path: "/workspace", access: fsAccess }], network: lines(network), secrets: lines(secretNames), mcpServers: [], tools: lines(tools) },
+      timeoutMs
     });
     router.push(`/runs/${runId}`);
   };
 
   const blocked = alignment?.executionBlockReason ?? null;
+
+  const inputCls = "mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm";
+  const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#657068]";
+  const agentWorkspaceFields = <div className="space-y-3 rounded-xl border bg-[#f7f9f4] p-4">
+    <p className="text-sm font-semibold">Agent &amp; workspace <span className="text-xs font-normal text-[#657068]">(shared by planner and builder)</span></p>
+    <div className="grid gap-3 md:grid-cols-2">
+      <label className="block text-sm"><span className={labelCls}>Agent</span>
+        <select value={agentChoice} onChange={(e) => chooseAgent(e.target.value)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
+          <option value="script">Shell command (demo scripts / custom)</option>
+          {(profiles.data ?? []).filter((p) => PICKABLE_KINDS.includes(p.kind)).map((p) => <option key={p.kind} value={p.kind}>{p.displayName}</option>)}
+        </select>
+        {profiles.error && <span className="mt-1 block text-xs text-[#9a3d31]">Could not load agent profiles: {profiles.error}</span>}
+      </label>
+      <label className="block text-sm"><span className={labelCls}>Repo path (on the machine running the backend)</span><input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/Users/you/code/my-app" className={inputCls} /></label>
+      <label className="block text-sm"><span className={labelCls}>Runtime provider</span>
+        <select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
+          <option value="process">process — no isolation, runs on this machine on a temp copy</option>
+          <option value="lima">lima — disposable VM (macOS/Linux, needs npm run vm:setup)</option>
+          <option value="docker">docker — container</option>
+        </select>
+      </label>
+      {usingRealAgent && <label className="block text-sm"><span className={labelCls}>Agent binary (optional override)</span><input value={agentBinary} onChange={(e) => setAgentBinary(e.target.value)} placeholder={selectedProfile ? `default: ${agentChoice === "claude_code" ? "claude" : agentChoice === "cursor" ? "agent" : agentChoice}` : ""} className={inputCls} /></label>}
+      <label className="block text-sm md:col-span-2"><span className={labelCls}>Secrets to inject (env var names, one per line — values are read from the backend process env, never stored)</span><textarea value={secretNames} onChange={(e) => setSecretNames(e.target.value)} rows={2} className={inputCls} /></label>
+    </div>
+    {usingRealAgent && selectedProfile && <p className="text-xs text-[#657068]">{selectedProfile.description} {provider === "lima" && !selectedProfile.runtimeReady && <span className="text-[#9a3d31]">Lima base VM <span className="mono">{selectedProfile.defaultBaseVm}</span> not found — run <span className="mono">npm run vm:setup-agent -- {agentChoice}</span> or switch runtime.</span>}</p>}
+    {provider === "process" && <p className="text-xs text-[#815017]">process runtime has no sandbox: the agent executes directly on the backend host against a temporary copy of the repo. Your original checkout is not mounted, but network, secrets and the rest of the machine are reachable.</p>}
+  </div>;
 
   return <div className="mx-auto max-w-4xl space-y-3">
     <div className="mb-7"><p className="eyebrow">Pre-execution</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">New request</h1><p className="mt-2 max-w-2xl text-sm text-[#657068]">Record the human request, capture the agent&apos;s declared intent before it can write anything, review the request → intent comparison, then start the execution sandbox.</p></div>
@@ -116,14 +181,13 @@ export function NewRequestFlow() {
     <Section eyebrow="Step 2" title="Agent intent (before execution)" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
       {!requestResult ? <p className="text-sm text-[#657068]">Record the request first.</p> : !intent ? <div className="space-y-3">
         <div className="flex gap-2">{(["manual", "planner"] as const).map((m) => <button key={m} onClick={() => setIntentMode(m)} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${intentMode === m ? "border-[#101913] bg-[#101913] text-white" : "bg-white text-[#657068]"}`}>{m === "manual" ? "Paste structured intent" : "Run planner in read-only sandbox"}</button>)}</div>
+        {agentWorkspaceFields}
         <div className="grid gap-3 md:grid-cols-2">
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Agent id</span><input value={agentId} onChange={(e) => setAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Repo path (on backend host)</span><input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Runtime provider</span><select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"><option value="process">process (unsandboxed, local demo only)</option><option value="lima">lima</option><option value="docker">docker</option></select></label>
-          {intentMode === "planner" && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
+          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner agent id</span><input value={agentId} onChange={(e) => setAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
+          {intentMode === "planner" && !usingRealAgent && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Planner command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
         </div>
         {intentMode === "manual" && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Structured intent JSON</span><textarea value={intentJson} onChange={(e) => setIntentJson(e.target.value)} rows={14} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-xs" /></label>}
-        {intentMode === "planner" && <p className="text-xs text-[#657068]">The planner runs in a read-only workspace copy and must print an <span className="mono">AGENTGUARD_EVENT</span> intent line; any write attempt fails the planning run.</p>}
+        {intentMode === "planner" && <p className="text-xs text-[#657068]">The planner runs in a read-only workspace copy. {usingRealAgent ? <>AgentGuard prepends instructions so {selectedProfile?.displayName ?? agentChoice} answers with the structured intent as JSON; the human request is passed verbatim.</> : <>The command must print an <span className="mono">AGENTGUARD_EVENT</span> intent line.</>} Any write attempt fails the planning run.</p>}
         <ActionButton onClick={async () => { try { await submitIntent(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>{intentMode === "planner" ? "Run planner & capture intent" : "Submit intent & analyze"}</ActionButton>
       </div> : <div className="space-y-4">
         <dl className="space-y-3">
@@ -156,7 +220,7 @@ export function NewRequestFlow() {
       {!intent ? <p className="text-sm text-[#657068]">Capture intent first — AgentGuard will not start a builder without a declared intent to compare against.</p> : <div className="space-y-3">
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Builder agent id</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
+          {usingRealAgent ? <p className="text-sm text-[#657068] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Workspace access</span><select value={fsAccess} onChange={(e) => setFsAccess(e.target.value as "read" | "read_write")} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"><option value="read_write">/workspace read + write</option><option value="read">/workspace read only</option></select></label>
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Network allowlist (one host per line)</span><textarea value={network} onChange={(e) => setNetwork(e.target.value)} rows={2} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#657068]">Tools (one per line)</span><textarea value={tools} onChange={(e) => setTools(e.target.value)} rows={2} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
