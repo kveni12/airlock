@@ -44,6 +44,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   const events = context?.events ?? new EventCollector(store, policy);
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
+  const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
   const intents = context?.intents ?? new IntentService(store);
   const findings = context?.findings ?? new FindingService(store, events);
@@ -76,6 +77,9 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     intent.requestId ? (await intentAlignment.analyze(intent.id)).intent : intent;
 
   const app = Fastify({ logger: true });
+  if (recovered && (recovered.failedRuns.length || Object.values(recovered.reaped).some((ids) => ids.length))) {
+    app.log.warn({ recovered }, "Recovered sandboxes left behind by a previous backend process");
+  }
   await app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ ok: true }));

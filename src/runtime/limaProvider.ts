@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import type { SandboxCreateOptions, SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
+import type { SandboxCreateOptions, SandboxHandle, SandboxProvider, WorkspaceMounts } from "./sandboxProvider.js";
 import { runtimeEnvironment } from "./sandboxProvider.js";
 import { LineDecoder } from "../telemetry/lineDecoder.js";
 
@@ -26,6 +26,10 @@ export class LimaProvider implements SandboxProvider {
 
   constructor(private readonly options: LimaProviderOptions = {}) {}
 
+  filesystemScope(mounts: WorkspaceMounts): "enforced" | "observed" {
+    return mounts.root === "ro" && mounts.writable.length === 0 ? "enforced" : "observed";
+  }
+
   async isBaseAvailable(baseVm: string): Promise<boolean> {
     try {
       await runCommand(this.binary, ["list", baseVm, "--format", "json"]);
@@ -35,18 +39,39 @@ export class LimaProvider implements SandboxProvider {
     }
   }
 
+  /** Delete per-run VMs (named after the run id) whose run is no longer active. */
+  async reapOrphans(activeRunIds: Set<string>): Promise<string[]> {
+    let listed: string;
+    try {
+      listed = await runCommand(this.binary, ["list", "--format", "{{.Name}}"]);
+    } catch {
+      return [];
+    }
+    const reaped: string[] = [];
+    for (const name of listed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) {
+      const runId = runIdFromLimaName(name);
+      if (!runId || activeRunIds.has(runId)) continue;
+      await runCommand(this.binary, ["delete", "--force", name], undefined, true);
+      reaped.push(runId);
+    }
+    return reaped;
+  }
+
   async create(options: SandboxCreateOptions): Promise<LimaHandle> {
     const name = limaName(options.run.id);
     const baseVm = options.run.runtimeBaseVm ?? this.options.baseVm ?? "agentguard-base";
     await runCommand(this.binary, ["list", baseVm, "--format", "json"], `Lima base VM '${baseVm}' is unavailable. Run npm run vm:setup first.`);
+    // Lima mounts are host-path-shaped and must not overlap, so per-folder writable overlays cannot be
+    // expressed: the whole workspace is read-only (planner) or writable, and out-of-scope writes are
+    // caught afterwards in the writable case (see filesystemScope).
+    const mountArgs = ["--mount-only", limaMountSpec(options.workspacePath, options.mounts)];
     await runCommand(
       this.binary,
       [
         "clone",
         baseVm,
         name,
-        "--mount-only",
-        options.run.workspaceAccess === "read_only" ? options.workspacePath : `${options.workspacePath}:w`,
+        ...mountArgs,
         "--mount-inotify",
         "--cpus",
         String(this.options.cpus ?? 2),
@@ -149,6 +174,12 @@ function limaName(runId: string): string {
   return `agentguard-${runId}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63);
 }
 
+/** Inverse of limaName for per-run VMs (`agentguard-run-<hex>`); base VMs such as `agentguard-base` yield undefined. */
+export function runIdFromLimaName(name: string): string | undefined {
+  const match = /^agentguard-run-([a-f0-9]+)$/.exec(name);
+  return match ? `run_${match[1]}` : undefined;
+}
+
 function asLimaHandle(handle: SandboxHandle): LimaHandle {
   return handle as LimaHandle;
 }
@@ -158,20 +189,29 @@ async function runCommand(
   args: string[],
   errorPrefix?: string,
   ignoreFailure = false
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: ["ignore", "ignore", "pipe"] });
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(binary, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
     let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout = `${stdout}${chunk.toString()}`.slice(-65_536);
+    });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString()}`.slice(-16_384);
     });
     child.once("error", (error) => {
-      if (ignoreFailure) resolve();
+      if (ignoreFailure) resolve(stdout);
       else reject(new Error(`${errorPrefix ?? "Lima command failed"}: ${error.message}`));
     });
     child.once("close", (code) => {
-      if (code === 0 || ignoreFailure) resolve();
+      if (code === 0 || ignoreFailure) resolve(stdout);
       else reject(new Error(`${errorPrefix ?? "Lima command failed"}: ${stderr.trim() || `exit code ${code}`}`));
     });
   });
+}
+
+/** `<host path>` mounts read-only, `<host path>:w` writable; a partial overlay widens to writable. */
+export function limaMountSpec(workspacePath: string, mounts: WorkspaceMounts): string {
+  return mounts.root === "ro" && mounts.writable.length === 0 ? workspacePath : `${workspacePath}:w`;
 }

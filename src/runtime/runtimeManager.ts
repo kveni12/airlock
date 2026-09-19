@@ -21,6 +21,7 @@ import { DockerProvider } from "./dockerProvider.js";
 import { LimaProvider } from "./limaProvider.js";
 import { ProcessProvider } from "./processProvider.js";
 import type { SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
+import { planWorkspaceMounts } from "./sandboxProvider.js";
 
 export interface RuntimeManagerOptions {
   defaultProvider?: RuntimeProviderKind;
@@ -46,6 +47,46 @@ export class RuntimeManager {
       docker: new DockerProvider(options),
       process: new ProcessProvider()
     };
+  }
+
+  /**
+   * Called once at startup. Runs still marked in-flight belong to a previous backend process and
+   * can never finish, so they are failed, their sandboxes/networks/VMs removed and their temp
+   * workspaces deleted when the run asked for cleanup.
+   */
+  async recover(): Promise<{ failedRuns: string[]; reaped: Record<RuntimeProviderKind, string[]> }> {
+    const inFlight = (await this.store.listRuns()).filter(
+      (run) => ["starting", "running", "stopping"].includes(run.status) && !this.active.has(run.id)
+    );
+    const failedRuns: string[] = [];
+    for (const run of inFlight) {
+      await this.store.updateRun(run.id, {
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        failureReason: "Periscope backend restarted while the run was in flight; sandbox torn down"
+      });
+      await this.events.emitEvent({
+        runId: run.id,
+        taskId: run.taskId,
+        agentId: run.agentId,
+        category: "runtime",
+        action: "failed",
+        severity: "high",
+        metadata: { reason: "backend_restart" }
+      });
+      if (run.workspacePath && run.cleanupWorkspace) {
+        await rm(run.workspacePath, { recursive: true, force: true }).catch(() => undefined);
+      }
+      failedRuns.push(run.id);
+    }
+
+    const activeRunIds = new Set(this.active.keys());
+    const reaped: Record<RuntimeProviderKind, string[]> = { docker: [], lima: [], process: [] };
+    for (const provider of Object.values(this.providers)) {
+      if (!provider.reapOrphans) continue;
+      reaped[provider.kind] = await provider.reapOrphans(activeRunIds).catch(() => []);
+    }
+    return { failedRuns, reaped };
   }
 
   async createRun(request: CreateRunRequest): Promise<RunRecord> {
@@ -171,6 +212,8 @@ export class RuntimeManager {
         });
       }
 
+      provider = this.providers[run.runtimeProvider];
+      const mounts = await planWorkspaceMounts(run, workspacePath, permissions);
       await this.events.emitEvent({
         runId: run.id,
         taskId: run.taskId,
@@ -183,17 +226,21 @@ export class RuntimeManager {
           runtime: run.runtimeProvider === "lima" ? run.runtimeBaseVm : run.runtimeImage,
           workspace: "/workspace",
           proxyPort,
+          networkAllowlist: permissions.network ?? [],
+          workspaceMount: mounts.root,
+          writableMounts: mounts.writable,
+          filesystemScope: provider.filesystemScope(mounts),
           agentKind: run.agent?.kind ?? "generic",
           outputTelemetry: "jsonl_with_raw_fallback"
         }
       });
 
-      provider = this.providers[run.runtimeProvider];
-      outputMonitor = new AgentOutputMonitor(run, this.events);
-      const proxyHostname = provider.proxyHostname;
+      outputMonitor = new AgentOutputMonitor(run, this.events, { filesystemEnforced: provider.filesystemScope(mounts) === "enforced" });
+      const proxyHostname = provider.prepareNetwork ? await provider.prepareNetwork(run) : provider.proxyHostname;
       handle = await provider.create({
         run,
         workspacePath,
+        mounts,
         proxyUrl: networkProxy.getProxyUrl(proxyHostname),
         environment: {
           ...agentEnvironment,
@@ -306,6 +353,7 @@ export class RuntimeManager {
       await fsMonitor?.stop().catch(() => undefined);
       await networkProxy?.stop().catch(() => undefined);
       await this.cleanup(run.id, workspacePath, run.cleanupWorkspace, provider, handle);
+      if (!handle) await provider?.releaseNetwork?.(run).catch(() => undefined);
       this.events.clearSecrets(run.id);
     }
   }
@@ -478,10 +526,10 @@ function defaultProvider(): RuntimeProviderKind {
   return configured === "docker" || configured === "process" ? configured : "lima";
 }
 
-function resolveSecretEnvironment(permissions: PermissionSnapshot): Record<string, string> {
+export function resolveSecretEnvironment(permissions: PermissionSnapshot, source: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const secrets: Record<string, string> = {};
   for (const name of permissions.secrets ?? []) {
-    const value = process.env[name];
+    const value = source[name];
     if (value !== undefined) secrets[name] = value;
   }
   return secrets;
