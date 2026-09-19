@@ -152,11 +152,15 @@ export function buildAlignment(ctx: RunContext): AlignmentSummary {
   } else if (!run.gitSummary && !["completed", "failed", "stopped"].includes(run.status)) {
     intentToBehavior = { status: "aligned", findingIds: behaviorFindings.map((f) => f.id), detail: "Run has not finished; behavior comparison is partial." };
   } else {
-    const deviations = behaviorFindings.filter((finding) => finding.type !== "missing_action" && finding.status !== "dismissed").length;
+    const deviationFindings = behaviorFindings.filter((finding) => finding.type !== "missing_action" && finding.status !== "dismissed");
+    const deviations = deviationFindings.length;
+    const resolved = deviationFindings.filter((finding) => finding.status === "resolved").length;
     intentToBehavior = {
       status: statusFor(behaviorFindings),
       findingIds: behaviorFindings.map((finding) => finding.id),
-      detail: deviations ? `${deviations} undeclared behavior(s) detected` : "Observed behavior matched the declared intent within available telemetry."
+      detail: deviations
+        ? `${deviations} undeclared behavior(s) detected${resolved ? ` (${resolved} resolved)` : ""}`
+        : "Observed behavior matched the declared intent within available telemetry."
     };
   }
 

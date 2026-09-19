@@ -14,6 +14,7 @@
     "vm:test-agents": "RUN_AGENT_SMOKE_TESTS=1 vitest run tests/agentRuntimes.integration.test.ts",
     "phase2:test": "RUN_PHASE2_E2E=1 vitest run tests/phase2.integration.test.ts",
     "demo:phase2": "bash scripts/run-phase2-demo.sh",
+    "demo:intent": "tsx scripts/run-intent-demo.ts",
     "docker:build": "docker build -t agentguard-runtime:latest -f runtime/Dockerfile ."
   },
   "dependencies": {
