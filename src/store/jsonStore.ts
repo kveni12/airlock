@@ -255,9 +255,23 @@ function normalizeStoredData(data: Partial<StoredData>): StoredData {
     permissions: data.permissions ?? {},
     requests: data.requests ?? [],
     requestAnalyses: data.requestAnalyses ?? [],
-    intents: data.intents ?? [],
+    intents: (data.intents ?? []).map(normalizeStoredIntent),
     findings: data.findings ?? [],
     reviews: (data.reviews ?? []).map((review) => ({ ...review, findingIds: review.findingIds ?? [] })),
     resolutions: data.resolutions ?? []
+  };
+}
+
+/** Fills fields added after Phase 2 so intents persisted by older stores stay usable. */
+export function normalizeStoredIntent(intent: AgentIntent): AgentIntent {
+  const plannedChanges = intent.plannedChanges ?? intent.plannedActions ?? [];
+  return {
+    ...intent,
+    interpretation: intent.interpretation ?? intent.summary ?? intent.goal,
+    plannedChanges,
+    plannedActions: intent.plannedActions ?? plannedChanges,
+    expectedCommands: intent.expectedCommands ?? [],
+    expectedTools: intent.expectedTools ?? [],
+    assumptions: intent.assumptions ?? []
   };
 }

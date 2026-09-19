@@ -1,6 +1,8 @@
 import path from "node:path";
-import type { AgentIntent, AgentIntentDraft } from "../types.js";
-import { JsonStore } from "../store/jsonStore.js";
+import type { AgentIntent, AgentIntentDraft, IntentAlignment, IntentApproval } from "../types.js";
+import { JsonStore, normalizeStoredIntent } from "../store/jsonStore.js";
+
+export { normalizeStoredIntent };
 import { createId } from "../utils/id.js";
 
 export class IntentService {
@@ -9,7 +11,7 @@ export class IntentService {
   async create(
     taskId: string,
     draft: AgentIntentDraft,
-    defaults: { agentId: string; agentType: string; runId?: string }
+    defaults: { agentId: string; agentType: string; runId?: string; requestId?: string; planningRunId?: string; supersedes?: string }
   ): Promise<AgentIntent> {
     if (!taskId?.trim()) throw new Error("taskId is required for intent");
     const normalized = validateIntentDraft(draft);
@@ -17,12 +19,61 @@ export class IntentService {
       id: createId("intent"),
       taskId,
       runId: defaults.runId,
+      requestId: defaults.requestId,
+      planningRunId: defaults.planningRunId,
+      supersedes: defaults.supersedes,
       ...normalized,
       createdBy: normalized.createdBy ?? { agentId: defaults.agentId, agentType: defaults.agentType },
       createdAt: new Date().toISOString()
     };
     await this.store.createIntent(intent);
+    if (defaults.supersedes) await this.store.updateIntent(defaults.supersedes, { supersededBy: intent.id });
     return intent;
+  }
+
+  async get(intentId: string): Promise<AgentIntent | undefined> {
+    const intent = await this.store.getIntent(intentId);
+    return intent ? normalizeStoredIntent(intent) : undefined;
+  }
+
+  async recordAlignment(intentId: string, alignment: IntentAlignment): Promise<AgentIntent> {
+    const updated = await this.store.updateIntent(intentId, { alignment });
+    if (!updated) throw new Error(`Intent not found: ${intentId}`);
+    return updated;
+  }
+
+  async approve(intentId: string, decision: { actor?: string; reason?: string }): Promise<AgentIntent> {
+    return this.decide(intentId, "approved", decision);
+  }
+
+  async reject(intentId: string, decision: { actor?: string; reason?: string }): Promise<AgentIntent> {
+    return this.decide(intentId, "rejected", decision);
+  }
+
+  /**
+   * Returns undefined when the intent may be executed, otherwise the reason execution is blocked.
+   */
+  executionBlockReason(intent: AgentIntent): string | undefined {
+    if (intent.supersededBy) return `Intent ${intent.id} was superseded by ${intent.supersededBy}`;
+    if (intent.approval?.status === "rejected") return `Intent ${intent.id} was rejected${intent.approval.reason ? `: ${intent.approval.reason}` : ""}`;
+    if (intent.requestId && !intent.alignment) return `Intent ${intent.id} has no request alignment decision yet`;
+    if (intent.alignment?.status === "conflict" && intent.approval?.status !== "approved") {
+      return `Intent ${intent.id} conflicts with the human request and requires human approval before execution`;
+    }
+    return undefined;
+  }
+
+  private async decide(
+    intentId: string,
+    status: IntentApproval["status"],
+    decision: { actor?: string; reason?: string }
+  ): Promise<AgentIntent> {
+    const intent = await this.store.getIntent(intentId);
+    if (!intent) throw new Error(`Intent not found: ${intentId}`);
+    if (intent.runId) throw new Error(`Intent ${intentId} is already attached to run ${intent.runId}`);
+    if (intent.supersededBy) throw new Error(`Intent ${intentId} was superseded by ${intent.supersededBy}`);
+    const approval: IntentApproval = { status, actor: decision.actor, reason: decision.reason, at: new Date().toISOString() };
+    return (await this.store.updateIntent(intentId, { approval })) ?? intent;
   }
 
   async attachToRun(intentId: string, runId: string, taskId: string): Promise<AgentIntent> {
@@ -30,6 +81,8 @@ export class IntentService {
     if (!intent) throw new Error(`Intent not found: ${intentId}`);
     if (intent.taskId !== taskId) throw new Error("Intent taskId does not match run taskId");
     if (intent.runId && intent.runId !== runId) throw new Error("Intent is already attached to another run");
+    const blocked = this.executionBlockReason(intent);
+    if (blocked) throw new Error(blocked);
     return (await this.store.updateIntent(intent.id, { runId })) ?? intent;
   }
 
@@ -54,21 +107,30 @@ export function validateIntentDraft(value: AgentIntentDraft): NormalizedIntentDr
   const record = objectValue(value);
   if (!record) throw new Error("Intent must be an object");
   const goal = requiredString(record.goal, "intent.goal");
-  const plannedChanges = stringArray(record.plannedChanges, "intent.plannedChanges", true);
+  const plannedChanges =
+    record.plannedChanges === undefined && record.plannedActions !== undefined
+      ? stringArray(record.plannedActions, "intent.plannedActions", true)
+      : stringArray(record.plannedChanges, "intent.plannedChanges", true);
   const expectedFiles = stringArray(record.expectedFiles, "intent.expectedFiles").map(normalizeExpectedFile);
   const constraints = stringArray(record.constraints, "intent.constraints");
   const createdByRecord = objectValue(record.createdBy);
+  const summary = optionalString(record.summary) ?? goal;
 
   return {
     goal,
-    summary: optionalString(record.summary) ?? goal,
+    summary,
+    interpretation: optionalString(record.interpretation) ?? summary,
     plannedChanges,
+    plannedActions: plannedChanges,
     expectedFiles: unique(expectedFiles),
     expectedDependencies: unique(stringArray(record.expectedDependencies, "intent.expectedDependencies").map(normalizeDependency)),
+    expectedCommands: unique(stringArray(record.expectedCommands, "intent.expectedCommands").map((value) => value.trim())),
     expectedNetwork: unique(stringArray(record.expectedNetwork, "intent.expectedNetwork").map(normalizeHostname)),
     expectedMcpServers: unique(stringArray(record.expectedMcpServers, "intent.expectedMcpServers").map(normalizeName)),
+    expectedTools: unique(stringArray(record.expectedTools, "intent.expectedTools").map(normalizeName)),
     expectedSecrets: unique(stringArray(record.expectedSecrets, "intent.expectedSecrets").map((value) => value.trim())),
     constraints,
+    assumptions: stringArray(record.assumptions, "intent.assumptions"),
     createdBy: createdByRecord
       ? {
           agentId: requiredString(createdByRecord.agentId, "intent.createdBy.agentId"),

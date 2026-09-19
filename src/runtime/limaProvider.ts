@@ -46,7 +46,7 @@ export class LimaProvider implements SandboxProvider {
         baseVm,
         name,
         "--mount-only",
-        `${options.workspacePath}:w`,
+        options.run.workspaceAccess === "read_only" ? options.workspacePath : `${options.workspacePath}:w`,
         "--mount-inotify",
         "--cpus",
         String(this.options.cpus ?? 2),

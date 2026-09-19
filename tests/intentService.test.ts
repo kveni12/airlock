@@ -40,6 +40,35 @@ describe("IntentService", () => {
     await harness.cleanup();
   });
 
+  it("accepts the extended intent shape and keeps plannedChanges/plannedActions in sync", async () => {
+    const harness = await createHarness();
+    const intent = await harness.service.create(
+      "task_login",
+      {
+        goal: "Fix login failures caused by expired sessions",
+        interpretation: "Correct session validation without changing database behavior.",
+        plannedActions: ["Inspect session validation", "Add regression test", "Run authentication tests"],
+        expectedFiles: ["src/auth/session.ts"],
+        expectedCommands: ["npm test"],
+        expectedTools: ["filesystem", "shell"],
+        assumptions: ["Sessions expire after 24h"],
+        constraints: ["Do not modify the database"]
+      },
+      { agentId: "planner", agentType: "codex", requestId: "req_1", planningRunId: "run_plan" }
+    );
+    expect(intent.plannedChanges).toEqual(intent.plannedActions);
+    expect(intent.plannedActions).toHaveLength(3);
+    expect(intent.expectedCommands).toEqual(["npm test"]);
+    expect(intent.expectedTools).toEqual(["filesystem", "shell"]);
+    expect(intent.assumptions).toEqual(["Sessions expire after 24h"]);
+    expect(intent.requestId).toBe("req_1");
+    expect(intent.planningRunId).toBe("run_plan");
+    expect(() =>
+      harness.service.parseGeneratedOutput({ goal: "x", plannedActions: ["a"], expectedFiles: [], constraints: [], expectedCommands: "npm test" })
+    ).toThrow("intent.expectedCommands");
+    await harness.cleanup();
+  });
+
   it("normalizes expected resources deterministically", () => {
     expect(normalizeExpectedFile("/workspace/src/auth/**")).toBe("src/auth/**");
     expect(normalizeDependency("My_Package.Name")).toBe("my-package-name");

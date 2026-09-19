@@ -78,6 +78,7 @@ export class RuntimeManager {
       cleanupWorkspace: request.cleanupWorkspace ?? !(request.intentId || request.intent || request.purpose === "resolver"),
       intentId: request.intentId,
       requestId: request.requestId,
+      workspaceAccess: request.purpose === "planner" ? "read_only" : "read_write",
       purpose: request.purpose ?? "builder",
       parentRunId: request.parentRunId
     };
@@ -257,13 +258,29 @@ export class RuntimeManager {
       await fsMonitor.reconcile();
       const gitSummary = await this.finishTelemetry(run, workspacePath, beforeGit, beforeDependencies);
       const active = this.active.get(run.id);
-      const finalStatus: RunStatus = active?.stopping ? "stopped" : exitCode === 0 ? "completed" : "failed";
+      let finalStatus: RunStatus = active?.stopping ? "stopped" : exitCode === 0 ? "completed" : "failed";
+      let planningViolation: string | undefined;
+      if (run.workspaceAccess === "read_only" && gitSummary.files.length > 0) {
+        planningViolation = `Planning workspace was modified despite read-only access: ${gitSummary.files.join(", ")}`;
+        finalStatus = "failed";
+        await this.events.emitEvent({
+          runId: run.id,
+          taskId: run.taskId,
+          agentId: run.agentId,
+          category: "runtime",
+          action: "planning_workspace_modified",
+          severity: "high",
+          allowed: false,
+          metadata: { files: gitSummary.files }
+        });
+      }
       await this.store.setGitSummary(run.id, gitSummary);
       await this.store.updateRun(run.id, {
         status: finalStatus,
         completedAt: new Date().toISOString(),
         exitCode,
-        failureReason: exitCode === 0 || finalStatus === "stopped" ? undefined : `Agent command exited with code ${exitCode}`
+        failureReason:
+          planningViolation ?? (exitCode === 0 || finalStatus === "stopped" ? undefined : `Agent command exited with code ${exitCode}`)
       });
 
       await this.events.emitEvent({

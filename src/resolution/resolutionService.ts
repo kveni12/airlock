@@ -30,6 +30,7 @@ export class ResolutionService {
     const finding = await this.findings.get(findingId);
     if (!finding) throw new Error(`Finding not found: ${findingId}`);
     if (finding.status !== "open") throw new Error(`Finding in status '${finding.status}' cannot be resolved`);
+    if (!finding.runId) throw new Error("Pre-execution findings have no run to resolve against");
     const originalRun = await this.store.getRun(finding.runId);
     if (!originalRun?.workspacePath) throw new Error("The builder workspace is unavailable for resolution");
     const intent = originalRun.intentId
@@ -73,7 +74,7 @@ export class ResolutionService {
     request: ResolveFindingRequest
   ): Promise<void> {
     try {
-      const originalRun = await this.store.getRun(finding.runId);
+      const originalRun = finding.runId ? await this.store.getRun(finding.runId) : undefined;
       if (!originalRun) throw new Error("Original run disappeared during resolution");
       const permissions = (await this.store.getPermissions(originalRun.id)) ?? {};
       const command = request.command ?? (request.agent ? undefined : defaultResolutionCommand(finding, request));

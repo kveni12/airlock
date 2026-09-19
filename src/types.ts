@@ -84,20 +84,47 @@ export interface CreateRunRequest {
 export interface AgentIntentDraft {
   goal: string;
   summary?: string;
-  plannedChanges: string[];
+  interpretation?: string;
+  /** Canonical list of planned actions. `plannedActions` is accepted as an alias on input. */
+  plannedChanges?: string[];
+  plannedActions?: string[];
   expectedFiles: string[];
   expectedDependencies?: string[];
+  expectedCommands?: string[];
   expectedNetwork?: string[];
   expectedMcpServers?: string[];
+  expectedTools?: string[];
   expectedSecrets?: string[];
   constraints: string[];
+  assumptions?: string[];
   createdBy?: { agentId: string; agentType: string };
+}
+
+export type AlignmentStatus = "aligned" | "warning" | "conflict";
+
+export interface IntentAlignment {
+  status: AlignmentStatus;
+  findingIds: string[];
+  analyzedAt: string;
+}
+
+export interface IntentApproval {
+  status: "approved" | "rejected";
+  actor?: string;
+  reason?: string;
+  at: string;
 }
 
 export interface AgentIntent extends Omit<Required<AgentIntentDraft>, "createdBy"> {
   id: string;
   taskId: string;
   runId?: string;
+  requestId?: string;
+  planningRunId?: string;
+  alignment?: IntentAlignment;
+  approval?: IntentApproval;
+  supersedes?: string;
+  supersededBy?: string;
   createdBy: { agentId: string; agentType: string };
   createdAt: string;
 }
@@ -198,11 +225,12 @@ export interface RunRecord {
   gitSummary?: GitSummary;
   intentId?: string;
   requestId?: string;
+  workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
 }
 
-export type FindingSource = "policy" | "intent_comparison" | "reviewer";
+export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
 export type FindingType =
   | "security"
   | "spec_drift"
@@ -212,6 +240,7 @@ export type FindingType =
   | "tests"
   | "code_quality"
   | "sensitive_change"
+  | "missing_action"
   | "other";
 export type FindingStatus = "open" | "resolving" | "re_reviewing" | "resolved" | "dismissed";
 
@@ -220,12 +249,19 @@ export interface FindingEvidence {
   diffSnippet?: string;
   observedResource?: string;
   declaredResource?: string;
+  requestId?: string;
+  intentId?: string;
+  humanRequestExcerpt?: string;
+  agentIntentExcerpt?: string;
+  /** Strongest verification backing this finding; absence-of-evidence findings are always inferred. */
+  verification?: EvidenceVerification;
 }
 
 export interface Finding {
   id: string;
   taskId: string;
-  runId: string;
+  /** Absent only for request/intent findings created before any run exists. */
+  runId?: string;
   reviewId?: string;
   source: FindingSource;
   type: FindingType;

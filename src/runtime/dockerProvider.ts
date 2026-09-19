@@ -37,7 +37,7 @@ export class DockerProvider implements SandboxProvider {
       Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
       HostConfig: {
         AutoRemove: false,
-        Binds: [`${workspacePath}:/workspace`],
+        Binds: [run.workspaceAccess === "read_only" ? `${workspacePath}:/workspace:ro` : `${workspacePath}:/workspace`],
         Memory: this.options.memoryBytes ?? 512 * 1024 * 1024,
         CpuShares: this.options.cpuShares ?? 512,
         PidsLimit: this.options.pidsLimit ?? 256,
