@@ -70,7 +70,7 @@ export function ProjectForm({ initial, submitLabel, onSubmit, onCancel }: { init
       </label>
       <label className="block text-sm md:col-span-2"><span className={labelCls}>Notes (optional)</span><textarea value={draft.notes ?? ""} onChange={(e) => set({ notes: e.target.value })} rows={2} placeholder="What this project is, conventions the agent should know…" className={inputCls} /></label>
     </div>
-    <AccessScopeEditor scope={draft.scope as AccessScope} onChange={(scope) => set({ scope })} provider={draft.runtime} />
+    <AccessScopeEditor scope={draft.scope as AccessScope} onChange={(scope) => set({ scope })} provider={draft.runtime} repoPath={draft.repoPath} />
     <div className="flex flex-wrap gap-2">
       <ActionButton onClick={submit}>{submitLabel}</ActionButton>
       {onCancel && <ActionButton variant="secondary" onClick={onCancel}>Cancel</ActionButton>}
