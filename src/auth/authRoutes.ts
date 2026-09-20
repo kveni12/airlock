@@ -34,10 +34,17 @@ export interface AuthPluginOptions {
   google?: GoogleOAuthConfig;
 }
 
+/** `PERISCOPE_AUTH_DISABLED=1` turns login off (local/demo use): every caller is anonymous, decisions record no account. */
+export function authDisabled(): boolean {
+  return process.env.PERISCOPE_AUTH_DISABLED === "1" || process.env.PERISCOPE_AUTH_DISABLED === "true";
+}
+
 export async function registerAuth(app: FastifyInstance, auth: AuthService, options: AuthPluginOptions): Promise<void> {
   await app.register(cookie);
+  if (authDisabled()) app.log.warn("PERISCOPE_AUTH_DISABLED is set: login is off and governance actions are not attributed to an account");
 
   app.addHook("onRequest", async (request, reply) => {
+    if (authDisabled()) return;
     const path = request.url.split("?")[0];
     if (PUBLIC_PATHS.has(path)) return;
 

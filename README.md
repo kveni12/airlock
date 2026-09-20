@@ -24,6 +24,22 @@ Then open `http://localhost:3001`. The first time you do, the UI asks you to cre
 
 `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
 
+### Share it publicly (one Cloudflare quick tunnel)
+
+```bash
+npm run dev:public                       # browse-anywhere demo
+GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: periscope)
+PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
+```
+
+`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host repo browsing, shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
+
+### Projects
+
+**Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
+
+`npm run demo:projects` seeds three sample projects over the bundled `fixtures/*` repos (idempotent; `AGENTGUARD_RUNTIME_PROVIDER` picks the runtime, default `docker`).
+
 ### Run a real agent on your own repository
 
 In the UI, open **New request**, record your prompt, then under **Agent & workspace** pick Claude Code / Codex / OpenCode / Cursor / Devin, point **Repo path** at any git checkout on the machine running the backend (e.g. `/Users/you/code/my-app`), and choose a runtime:

@@ -78,7 +78,33 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
 }
+
+export interface ProjectScope {
+  folders: Array<{ path: string; access: "read" | "read_write" }>;
+  hosts: string[];
+  secrets: string[];
+  mcpServers: string[];
+  tools: string[];
+}
+
+/** A repo plus the saved sandbox settings New request starts from when the project is opened. */
+export interface Project {
+  id: string;
+  name: string;
+  repoPath: string;
+  branch?: string;
+  agentKind?: string;
+  runtime: RuntimeProviderKind;
+  scope: ProjectScope;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+export type ProjectInput = Omit<Project, "id" | "createdAt" | "updatedAt" | "lastOpenedAt">;
 
 export interface RunFilesResponse {
   runId: string;
@@ -473,12 +499,14 @@ export interface CreateRunBody {
   intent?: AgentIntentDraft;
   intentId?: string;
   requestId?: string;
+  projectId?: string;
 }
 
 export interface GenerateIntentBody {
   taskId: string;
   agentId: string;
   requestId?: string;
+  projectId?: string;
   repo?: { path: string; branch?: string };
   agent?: AgentProfileConfig;
   command?: string[];

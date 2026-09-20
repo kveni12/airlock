@@ -116,7 +116,7 @@ function LoginForm({ googleEnabled, onDone }: { googleEnabled: boolean; onDone: 
 
   return <form onSubmit={submit}>
     <h1 className="text-lg font-semibold">Sign in</h1>
-    <p className="mt-1 text-sm text-[#64717c]">Governance actions are recorded against your account.</p>
+    <p className="mt-1 text-sm text-[#64717c]">Approvals, rejections and rule edits are attributed to the signed-in account in the audit trail.</p>
     <label className="mt-5 block text-sm"><span className={labelCls}>Email</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} required /></label>
     <label className="mt-3 block text-sm"><span className={labelCls}>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} required /></label>
     {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
