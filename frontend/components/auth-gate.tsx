@@ -53,8 +53,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await logout().catch(() => undefined);
     setUser(null);
-    setPhase("login");
-  }, []);
+    setPhase("loading");
+    await refresh();
+  }, [refresh]);
 
   if (phase === "loading") return <CenteredCard><p className="text-sm text-[#64717c]">Checking your session…</p></CenteredCard>;
   if (phase === "offline") {
