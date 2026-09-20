@@ -45,6 +45,8 @@ export class PolicyEngine {
         if (!writeAllowed(resource, context.permissions.filesystem ?? [])) {
           violations.push(this.violation(event, "permission_scope", resource, "Agent touched a path outside its declared filesystem scope."));
         }
+      } else if (resource && event.category === "filesystem" && isReadAction(event.action) && !readAllowed(resource, context.permissions.filesystem ?? [])) {
+        violations.push(this.violation(event, "permission_scope", resource, "Agent read a path marked no access."));
       }
     }
 
@@ -90,26 +92,39 @@ function isModificationAction(action: string): boolean {
   return ["create", "write", "delete", "file_changed"].includes(action);
 }
 
+function isReadAction(action: string): boolean {
+  return ["read", "open", "list", "list_dir", "search", "glob", "grep"].includes(action);
+}
+
 export function normalizeResource(resource?: string): string | undefined {
   if (!resource) return undefined;
   return resource.replace(/^\/workspace\//, "").replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
-/** The most specific matching grant decides; with no grants at all, nothing is declared and writes are not scoped. */
+/** The most specific matching grant decides; with no grants, access remains unscoped for backward compatibility. */
 export function writeAllowed(resource: string, filesystem: FilePermission[]): boolean {
-  if (!filesystem.length) return true;
+  return effectiveFileAccess(resource, filesystem) === "read_write";
+}
+
+export function readAllowed(resource: string, filesystem: FilePermission[]): boolean {
+  const access = effectiveFileAccess(resource, filesystem);
+  return access === "read" || access === "read_write";
+}
+
+export function effectiveFileAccess(resource: string, filesystem: FilePermission[]): FilePermission["access"] | undefined {
+  if (!filesystem.length) return "read_write";
   let best: FilePermission | undefined;
   let bestLength = -1;
   for (const permission of filesystem) {
     if (!pathWithinPermission(resource, permission.path)) continue;
     const normalized = normalizeResource(permission.path) ?? "";
-    const length = ["/workspace", "/workspace/", "."].includes(normalized) ? 0 : normalized.length;
+    const length = ["/workspace", "/workspace/", ".", ""].includes(normalized) ? 0 : normalized.length;
     if (length > bestLength) {
       best = permission;
       bestLength = length;
     }
   }
-  return best?.access === "read_write";
+  return best?.access;
 }
 
 export function pathWithinPermission(resource: string, permissionPath: string): boolean {

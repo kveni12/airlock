@@ -30,7 +30,7 @@ export interface MCPServer {
 }
 
 export interface PermissionSnapshot {
-  filesystem?: Array<{ path: string; access: "read" | "read_write" }>;
+  filesystem?: Array<{ path: string; access: "none" | "read" | "read_write" }>;
   network?: string[];
   secrets?: string[];
   mcpServers?: Array<string | MCPServer>;

@@ -139,7 +139,7 @@ export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onC
 export function PermissionsSection({ permissions }: { permissions?: PermissionSnapshot }) {
   return <Section eyebrow="3 · Permissions" title="What the agent was allowed to access">
     {!permissions ? <p className="text-sm text-[#64717c]">No permission snapshot recorded.</p> : <dl className="space-y-3">
-      <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "RW" : "R"}`)} /></KeyValue>
+      <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "can change" : p.access === "read" ? "read only" : "no access"}`)} /></KeyValue>
       <KeyValue label="Network"><Chips items={permissions.network ?? []} /></KeyValue>
       <KeyValue label="Keys"><Chips items={permissions.secrets ?? []} /></KeyValue>
       <KeyValue label="MCP servers"><Chips items={(permissions.mcpServers ?? []).map((s) => typeof s === "string" ? s : s.name)} /></KeyValue>
