@@ -78,6 +78,7 @@ export interface CreateRunRequest {
   expectedFiles?: string[];
   timeoutMs?: number;
   cleanupWorkspace?: boolean;
+  workspaceMode?: "copy" | "local";
   runtime?: RuntimeConfig;
   intent?: AgentIntentDraft;
   intentId?: string;
@@ -103,6 +104,7 @@ export interface Project {
   runtime: RuntimeProviderKind;
   scope: ProjectScope;
   notes?: string;
+  humanIntent?: string;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt?: string;
@@ -263,6 +265,7 @@ export interface RunRecord {
   timeoutMs: number;
   expectedFiles: string[];
   cleanupWorkspace: boolean;
+  workspaceMode?: "copy" | "local";
   gitSummary?: GitSummary;
   intentId?: string;
   requestId?: string;

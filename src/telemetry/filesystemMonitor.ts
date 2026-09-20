@@ -72,7 +72,8 @@ export class FilesystemMonitor {
       category: "filesystem",
       action,
       resource,
-      allowed: true
+      metadata: this.run.workspaceMode === "local" ? { attribution: "unattributed", message: "Shared local file change; process identity is unknown" } : undefined,
+      allowed: this.run.workspaceMode === "local" ? undefined : true
     });
   }
 

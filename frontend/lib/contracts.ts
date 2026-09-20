@@ -76,6 +76,7 @@ export interface RunRecord {
   intentId?: string;
   requestId?: string;
   workspaceAccess?: "read_only" | "read_write";
+  workspaceMode?: "copy" | "local";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
   projectId?: string;
@@ -112,6 +113,7 @@ export interface Project {
   runtime: RuntimeProviderKind;
   scope: ProjectScope;
   notes?: string;
+  humanIntent?: string;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt?: string;

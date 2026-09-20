@@ -46,6 +46,7 @@ export class PullRequestService {
   async createFromApprovedRun(runId: string, options: CreatePullRequestOptions = {}): Promise<RunPullRequest> {
     const run = await this.store.getRun(runId);
     if (!run) throw new PullRequestError(`Run ${runId} not found`, 404);
+    if (run.workspaceMode === "local") throw new PullRequestError("This session already edited the local project. Review and commit those changes in your checkout.", 409);
     if (run.pullRequest) throw new PullRequestError(`Run ${runId} already has branch ${run.pullRequest.branch}`, 409);
     if (run.status !== "completed") throw new PullRequestError(`Run ${runId} is ${run.status}; only completed runs can become a pull request`, 409);
 
