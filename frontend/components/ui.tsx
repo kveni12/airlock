@@ -31,7 +31,7 @@ export function verificationHelp(verification: EvidenceVerification | "unavailab
 }
 
 export function RunStatusBadge({ status }: { status: RunStatus }) {
-  const cls = status === "completed" ? "status-good" : status === "failed" ? "status-bad" : ["running", "starting", "pending", "stopping"].includes(status) ? "status-info" : "";
+  const cls = status === "completed" ? "status-good" : status === "failed" ? "status-bad" : ["running", "starting", "pending", "stopping"].includes(status) ? "status-info" : status === "paused" ? "status-warn" : "";
   return <span className={`status ${cls}`}>{status}</span>;
 }
 

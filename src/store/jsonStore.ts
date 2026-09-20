@@ -8,7 +8,9 @@ import type {
   Finding,
   GitSummary,
   HumanRequest,
+  IntentAmendment,
   PermissionSnapshot,
+  Project,
   RequestAnalysis,
   RequestAnalyzerRules,
   ResolutionAttempt,
@@ -111,6 +113,38 @@ export class JsonStore {
     return data.permissions[runId];
   }
 
+  async setPermissions(runId: string, permissions: PermissionSnapshot): Promise<void> {
+    await this.update((data) => {
+      data.permissions[runId] = permissions;
+    });
+  }
+
+  async createIntentAmendment(amendment: IntentAmendment): Promise<void> {
+    await this.update((data) => {
+      data.intentAmendments = [...(data.intentAmendments ?? []), amendment];
+    });
+  }
+
+  async updateIntentAmendment(id: string, patch: Partial<IntentAmendment>): Promise<IntentAmendment | undefined> {
+    let updated: IntentAmendment | undefined;
+    await this.update((data) => {
+      const amendment = (data.intentAmendments ?? []).find((item) => item.id === id);
+      if (!amendment) return;
+      Object.assign(amendment, patch);
+      updated = amendment;
+    });
+    return updated;
+  }
+
+  async getIntentAmendment(id: string): Promise<IntentAmendment | undefined> {
+    return ((await this.read()).intentAmendments ?? []).find((item) => item.id === id);
+  }
+
+  async listIntentAmendments(runId?: string): Promise<IntentAmendment[]> {
+    const all = (await this.read()).intentAmendments ?? [];
+    return runId ? all.filter((item) => item.runId === runId) : all;
+  }
+
   async createRequest(request: HumanRequest): Promise<void> {
     await this.update((data) => data.requests.push(request));
   }
@@ -154,6 +188,47 @@ export class JsonStore {
     await this.update((data) => {
       data.requestRules = rules;
     });
+  }
+
+  async listProjects(): Promise<Project[]> {
+    return (await this.read()).projects ?? [];
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    return ((await this.read()).projects ?? []).find((project) => project.id === id);
+  }
+
+  async createProject(project: Project): Promise<void> {
+    await this.update((data) => {
+      data.projects = [...(data.projects ?? []), project];
+    });
+  }
+
+  async updateProject(id: string, patch: Partial<Project>): Promise<Project | undefined> {
+    let updated: Project | undefined;
+    await this.update((data) => {
+      const project = (data.projects ?? []).find((item) => item.id === id);
+      if (!project) return;
+      Object.assign(project, patch);
+      updated = project;
+    });
+    return updated;
+  }
+
+  async replaceProject(project: Project): Promise<void> {
+    await this.update((data) => {
+      data.projects = (data.projects ?? []).map((item) => (item.id === project.id ? project : item));
+    });
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    let removed = false;
+    await this.update((data) => {
+      const before = data.projects?.length ?? 0;
+      data.projects = (data.projects ?? []).filter((project) => project.id !== id);
+      removed = data.projects.length !== before;
+    });
+    return removed;
   }
 
   async createIntent(intent: AgentIntent): Promise<void> {
@@ -344,7 +419,9 @@ function normalizeStoredData(data: Partial<StoredData>): StoredData {
     findings: data.findings ?? [],
     reviews: (data.reviews ?? []).map((review) => ({ ...review, findingIds: review.findingIds ?? [] })),
     resolutions: data.resolutions ?? [],
-    requestRules: data.requestRules
+    requestRules: data.requestRules,
+    projects: data.projects ?? [],
+    intentAmendments: data.intentAmendments ?? []
   };
 }
 

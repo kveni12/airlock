@@ -12,8 +12,11 @@ import type {
   GenerateIntentBody,
   HumanRequest,
   PermissionSnapshot,
+  Project,
+  ProjectInput,
   PublicUser,
   RepoTreeListing,
+  HostFolderListing,
   RuntimeSetupJob,
   RuntimeStatus,
   RequestAnalysis,
@@ -35,7 +38,7 @@ export class AgentGuardApiError extends Error {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT"; body?: unknown }): Promise<T> {
+async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT" | "DELETE"; body?: unknown }): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -59,6 +62,7 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
     }
     throw new AgentGuardApiError(message, response.status);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -74,6 +78,11 @@ export function getAuthStatus(signal?: AbortSignal) {
   return request<AuthStatus>("/api/auth/status", signal);
 }
 
+/** A full page navigation, not a fetch: the browser has to follow Google's redirects. */
+export function googleSignInUrl(returnTo: string): string {
+  return `${API_BASE_URL}/api/auth/google/start?returnTo=${enc(returnTo)}`;
+}
+
 export async function getCurrentUser(signal?: AbortSignal): Promise<PublicUser> {
   return (await request<{ user: PublicUser }>("/api/auth/me", signal)).user;
 }
@@ -84,6 +93,10 @@ export async function login(email: string, password: string): Promise<PublicUser
 
 export async function bootstrapAdmin(body: { email: string; password: string; displayName?: string; setupToken: string }): Promise<PublicUser> {
   return (await post<{ user: PublicUser }>("/api/auth/bootstrap", body)).user;
+}
+
+export async function registerAccount(body: { email: string; password: string; displayName?: string }): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/register", body)).user;
 }
 
 export function logout() {
@@ -156,6 +169,32 @@ export function previewRequest(rawPrompt: string, rules?: RequestAnalyzerRules) 
   return post<RequestAnalysis>("/api/requests/preview", { rawPrompt, rules });
 }
 
+// ---- projects ----
+
+export function getProjects(signal?: AbortSignal) {
+  return request<Project[]>("/api/projects", signal);
+}
+
+export function getProject(id: string, signal?: AbortSignal) {
+  return request<Project>(`/api/projects/${enc(id)}`, signal);
+}
+
+export function createProject(input: ProjectInput) {
+  return post<Project>("/api/projects", input);
+}
+
+export function updateProject(id: string, input: ProjectInput) {
+  return request<Project>(`/api/projects/${enc(id)}`, undefined, { method: "PUT", body: input });
+}
+
+export function openProject(id: string) {
+  return post<Project>(`/api/projects/${enc(id)}/open`);
+}
+
+export function deleteProject(id: string) {
+  return request<void>(`/api/projects/${enc(id)}`, undefined, { method: "DELETE" });
+}
+
 export function getRequestRules(signal?: AbortSignal) {
   return request<RequestAnalyzerRules>("/api/request-rules", signal);
 }
@@ -190,6 +229,14 @@ export function getIntent(id: string, signal?: AbortSignal) {
 
 export function getIntentAlignment(id: string, signal?: AbortSignal) {
   return request<IntentAlignmentResponse>(`/api/intents/${enc(id)}/alignment`, signal);
+}
+
+export function getHostFolders(dir?: string, signal?: AbortSignal) {
+  return request<HostFolderListing>(`/api/host/folders${dir ? `?dir=${enc(dir)}` : ""}`, signal);
+}
+
+export async function pickHostFolder(startDir?: string): Promise<string | null> {
+  return (await post<{ path: string | null }>("/api/host/pick-folder", { startDir })).path;
 }
 
 export function getRepoTree(repoPath: string, dir = "", signal?: AbortSignal) {

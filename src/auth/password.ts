@@ -7,8 +7,8 @@ const KEY_LENGTH = 64;
 export const MIN_PASSWORD_LENGTH = 12;
 
 export interface PasswordHash {
-  salt: string;
-  passwordHash: string;
+  salt?: string;
+  passwordHash?: string;
 }
 
 export async function hashPassword(password: string): Promise<PasswordHash> {
@@ -18,6 +18,7 @@ export async function hashPassword(password: string): Promise<PasswordHash> {
 }
 
 export async function verifyPassword(password: string, hash: PasswordHash): Promise<boolean> {
+  if (!hash.salt || !hash.passwordHash) return false;
   const expected = Buffer.from(hash.passwordHash, "hex");
   const derived = await scrypt(password, hash.salt, expected.length || KEY_LENGTH);
   return expected.length === derived.length && timingSafeEqual(expected, derived);

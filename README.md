@@ -16,13 +16,31 @@ This repository implements the backend workflow for:
 ## Quickstart (backend + UI)
 
 ```bash
-npm install
+npm run setup     # checks Node 22+ and Docker, installs deps, builds the sandbox image
 npm run dev:all
 ```
+
+(`npm install && npm run dev:all` also works if you would rather skip the checks.) Periscope runs on **your** machine: the **Open folder…** button on Projects and New request browses this computer's disk (with the native macOS folder dialog when available), so any local git checkout can be governed — the agent only ever sees the sandboxed copy of the folder you pick. The hosted/tunnel demo cannot reach your files; run it locally for that.
 
 Then open `http://localhost:3001`. The first time you do, the UI asks you to create an administrator account and paste the one-time setup token the backend printed to its log at startup (`Periscope has no operator account yet…`). Every later visit asks you to sign in; requests, intent decisions, dismissals and review approvals are recorded against that account rather than a caller-supplied name.
 
 `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
+
+### Share it publicly (one Cloudflare quick tunnel)
+
+```bash
+npm run dev:public                       # browse-anywhere demo
+GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: periscope)
+PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
+```
+
+`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host folder browsing (`/api/host/*`), shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
+
+### Projects
+
+**Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
+
+`npm run demo:projects` seeds three sample projects over the bundled `fixtures/*` repos (idempotent; `AGENTGUARD_RUNTIME_PROVIDER` picks the runtime, default `docker`).
 
 ### Run a real agent on your own repository
 
@@ -47,17 +65,30 @@ Every route except `/health` and `/api/auth/*` requires a session cookie.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/auth/status` | Whether the instance still needs its first administrator |
+| `GET /api/auth/status` | Whether the instance still needs its first administrator, and whether Google sign-in is available |
 | `POST /api/auth/bootstrap` | Create the first administrator with the one-time setup token from the backend log |
 | `POST /api/auth/login` | Sign in and receive the `periscope_session` cookie |
 | `POST /api/auth/logout` | Invalidate the session |
 | `GET /api/auth/me` | The signed-in operator |
 | `GET`/`POST /api/auth/users` | List/create operators (administrators only) |
+| `GET /api/auth/google/start` | Begin Google sign-in (browser redirect) |
+| `GET /api/auth/google/callback` | Google's redirect back; issues the session cookie |
 
 Passwords are at least 12 characters and stored as salted scrypt hashes. Sessions live in backend memory, so restarting the backend signs everyone out. Configuration:
 
 - `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
 - `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
+- `PERISCOPE_OPEN_SIGNUP=1`: show "Create an account" on the sign-in page; anyone reaching the instance can create an `operator` account (`POST /api/auth/register`). Off by default — only admins create users.
+
+### Sign in with Google
+
+Optional. Create an OAuth client (Google Cloud console → APIs & Services → Credentials → OAuth client ID → Web application) with the authorized redirect URI `<your Periscope URL>/api/auth/google/callback`, then:
+
+- `PERISCOPE_GOOGLE_CLIENT_ID`, `PERISCOPE_GOOGLE_CLIENT_SECRET`: the OAuth client. Both are required; without them the login page shows only email and password.
+- `PERISCOPE_PUBLIC_URL`: the origin Periscope is served from, used to derive the redirect URI. Override it directly with `PERISCOPE_GOOGLE_REDIRECT_URI` if they differ.
+- `PERISCOPE_GOOGLE_ALLOWED_EMAILS`, `PERISCOPE_GOOGLE_ALLOWED_DOMAINS`: comma-separated addresses/domains that may create an account on first sign-in. **Both empty (the default) means no self-provisioning**: a Google account can only sign in to an operator an administrator already created, matched by email. This matters because any session can start agent runs on the host.
+
+Google accounts never get a password; an account that has both keeps working either way. The flow uses PKCE and single-use state, and the identity token is read from Google's token response over TLS rather than accepted from the browser.
 
 Scripted clients sign in and reuse the cookie, e.g. `curl -c jar -X POST localhost:3000/api/auth/login -H 'content-type: application/json' -d '{"email":"you@example.com","password":"…"}'` then `curl -b jar localhost:3000/api/runs`.
 
@@ -390,6 +421,20 @@ AGENTGUARD_EVENT {"category":"mcp","action":"tool_call","resource":"github/creat
 ```
 
 Allowed self-reported categories are `agent`, `process`, and `mcp`. Filesystem, network, policy, secret, and runtime lifecycle events remain backend-owned so an agent cannot claim that its own behavior was allowed or independently observed.
+
+### Intent amendments (asking instead of drifting)
+
+A builder that discovers it must go beyond its approved plan requests an **intent amendment** and waits; Periscope marks the run `paused` and the reviewer approves or denies it (`POST /api/intent-amendments/:id/approve|deny`, actor recorded). Approval creates a revised intent that supersedes the previous one (additive: extra planned actions, files, dependencies, commands, hosts, MCP servers, tools, secrets), merges the requested grants into the run's permissions, and reports which grants were applied live (`network` — the proxy allowlist widens immediately) versus deferred to the next run (`filesystem`, `secrets` — Docker mounts and injected env are fixed at container creation). Denial changes nothing. Every step is an event (`agent.intent_amendment_requested/approved/denied`) correlated by amendment id and linked to the previous and resulting intent.
+
+Agents ask through the sandbox control channel — a virtual host on the run's HTTP proxy, so no extra network access is needed:
+
+```text
+POST http://periscope.internal/amendments
+{"reason":"why","changes":{"expectedFiles":["infra/prod.tf"],"plannedActions":["..."]},"permissions":{"filesystem":[{"path":"infra","access":"read_write"}],"network":["registry.terraform.io"]}}
+GET  http://periscope.internal/amendments/<id>?wait=60      # long-poll until status is approved | denied
+```
+
+or, without HTTP, by printing `AGENTGUARD_EVENT {"category":"agent","action":"intent_amendment","metadata":{reason,changes,permissions}}`. Real agents receive these instructions appended to their builder prompt. `reason` and at least one change or grant are required.
 
 Every output record is line- and size-bounded, ordered per run, sent through centralized secret redaction, persisted, and streamed over SSE. Unknown output becomes `process.output`; malformed explicit protocol messages generate `runtime.telemetry_degraded` rather than disappearing silently.
 

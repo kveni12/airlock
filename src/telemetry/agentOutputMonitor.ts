@@ -18,7 +18,11 @@ export class AgentOutputMonitor {
   constructor(
     private readonly run: RunRecord,
     private readonly events: EventCollector,
-    private readonly options: { filesystemEnforced?: boolean } = {}
+    private readonly options: {
+      filesystemEnforced?: boolean;
+      /** Handles `AGENTGUARD_EVENT {"category":"agent","action":"intent_amendment","metadata":{reason,changes,permissions}}`. */
+      onAmendmentRequest?: (payload: unknown) => Promise<void>;
+    } = {}
   ) {}
 
   observe(output: SandboxOutput): void {
@@ -35,6 +39,11 @@ export class AgentOutputMonitor {
   private async process(output: SandboxOutput, sequence: number): Promise<void> {
     if (output.line.startsWith(EVENT_PREFIX)) {
       const event = parseAgentGuardEvent(output.line.slice(EVENT_PREFIX.length));
+      if (event.category === "agent" && event.action === "intent_amendment" && this.options.onAmendmentRequest) {
+        const { reportedByAgent: _reported, ...payload } = event.metadata ?? {};
+        await this.options.onAmendmentRequest(payload);
+        return;
+      }
       await this.emit(event, output, sequence, "agentguard_protocol");
       return;
     }

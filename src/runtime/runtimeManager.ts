@@ -6,7 +6,8 @@ import { AGENT_PROFILES, resolveAgent } from "../agents/agentAdapter.js";
 import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { FilesystemMonitor } from "../telemetry/filesystemMonitor.js";
-import { NetworkProxy } from "../telemetry/networkProxy.js";
+import { NetworkProxy, type ControlRequest } from "../telemetry/networkProxy.js";
+import { BUILDER_AMENDMENT_INSTRUCTION, type IntentAmendmentService } from "../intent/intentAmendmentService.js";
 import { AgentOutputMonitor } from "../telemetry/agentOutputMonitor.js";
 import {
   checkoutBranch,
@@ -38,6 +39,7 @@ export class RuntimeManager {
   private readonly providers: Record<RuntimeProviderKind, SandboxProvider>;
   readonly setup: RuntimeSetupService;
   private readonly active = new Map<string, { provider?: SandboxProvider; handle?: SandboxHandle; stopping: boolean }>();
+  private amendments?: IntentAmendmentService;
 
   constructor(
     private readonly store: JsonStore,
@@ -52,6 +54,11 @@ export class RuntimeManager {
     };
   }
 
+  /** Enables the in-sandbox control channel (`http://periscope.internal/amendments`) and live grant application. */
+  attachAmendments(service: IntentAmendmentService): void {
+    this.amendments = service;
+  }
+
   /**
    * Called once at startup. Runs still marked in-flight belong to a previous backend process and
    * can never finish, so they are failed, their sandboxes/networks/VMs removed and their temp
@@ -59,7 +66,7 @@ export class RuntimeManager {
    */
   async recover(): Promise<{ failedRuns: string[]; reaped: Record<RuntimeProviderKind, string[]> }> {
     const inFlight = (await this.store.listRuns()).filter(
-      (run) => ["starting", "running", "stopping"].includes(run.status) && !this.active.has(run.id)
+      (run) => ["starting", "running", "paused", "stopping"].includes(run.status) && !this.active.has(run.id)
     );
     const failedRuns: string[] = [];
     for (const run of inFlight) {
@@ -95,6 +102,9 @@ export class RuntimeManager {
   async createRun(request: CreateRunRequest): Promise<RunRecord> {
     validateCreateRun(request);
     await assertReadableDirectory(request.repo.path);
+    if (this.amendments && request.agent?.prompt && (request.purpose ?? "builder") === "builder") {
+      request = { ...request, agent: { ...request.agent, prompt: `${request.agent.prompt}\n\n${BUILDER_AMENDMENT_INSTRUCTION}` } };
+    }
     const agent = resolveAgent(request);
     const runtimeProvider = request.runtime?.provider ?? this.options.defaultProvider ?? defaultProvider();
     const permissions = request.permissions ?? {};
@@ -126,7 +136,8 @@ export class RuntimeManager {
       requestId: request.requestId,
       workspaceAccess: request.purpose === "planner" ? "read_only" : "read_write",
       purpose: request.purpose ?? "builder",
-      parentRunId: request.parentRunId
+      parentRunId: request.parentRunId,
+      projectId: request.projectId
     };
 
     await this.store.createRun(run, permissions);
@@ -199,8 +210,18 @@ export class RuntimeManager {
       fsMonitor = new FilesystemMonitor(workspacePath, run, this.events);
       await fsMonitor.start();
 
-      networkProxy = new NetworkProxy(run, permissions.network ?? [], this.events);
+      const amendments = this.amendments;
+      networkProxy = new NetworkProxy(
+        run,
+        permissions.network ?? [],
+        this.events,
+        amendments ? (control) => this.handleControl(run, amendments, control) : undefined
+      );
       const proxyPort = await networkProxy.start();
+      if (amendments) {
+        const proxy = networkProxy;
+        amendments.registerLiveApplier(run.id, async (grants) => (grants.network?.length && proxy.allow(grants.network) ? ["network"] : []));
+      }
 
       for (const secretName of permissions.secrets ?? []) {
         if (!(secretName in agentEnvironment)) continue;
@@ -238,7 +259,10 @@ export class RuntimeManager {
         }
       });
 
-      outputMonitor = new AgentOutputMonitor(run, this.events, { filesystemEnforced: provider.filesystemScope(mounts) === "enforced" });
+      outputMonitor = new AgentOutputMonitor(run, this.events, {
+        filesystemEnforced: provider.filesystemScope(mounts) === "enforced",
+        onAmendmentRequest: amendments ? (payload) => amendments.request(run.id, payload, "agent_output").then(() => undefined) : undefined
+      });
       const proxyHostname = provider.prepareNetwork ? await provider.prepareNetwork(run) : provider.proxyHostname;
       handle = await provider.create({
         run,
@@ -365,6 +389,7 @@ export class RuntimeManager {
       await outputMonitor?.flush().catch(() => undefined);
       await fsMonitor?.stop().catch(() => undefined);
       await networkProxy?.stop().catch(() => undefined);
+      this.amendments?.unregisterLiveApplier(run.id);
       await this.cleanup(run.id, workspacePath, run.cleanupWorkspace, provider, handle);
       if (!handle) await provider?.releaseNetwork?.(run).catch(() => undefined);
       this.events.clearSecrets(run.id);
@@ -479,6 +504,38 @@ export class RuntimeManager {
       severity: "high",
       metadata: { reason: message }
     });
+  }
+
+  /**
+   * Control channel the agent reaches through the proxy at `http://periscope.internal`:
+   *   POST /amendments            {reason, changes, permissions} -> 201 amendment (run is paused)
+   *   GET  /amendments/:id?wait=N  long-polls up to N seconds for the human decision
+   */
+  private async handleControl(
+    run: RunRecord,
+    amendments: IntentAmendmentService,
+    control: ControlRequest
+  ): Promise<{ status: number; body: unknown }> {
+    const url = new URL(control.path, "http://periscope.internal");
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments[0] !== "amendments") return { status: 404, body: { error: "Unknown control endpoint" } };
+
+    if (control.method === "POST" && segments.length === 1) {
+      try {
+        return { status: 201, body: await amendments.request(run.id, control.body, "control_channel") };
+      } catch (error: unknown) {
+        return { status: 400, body: { error: error instanceof Error ? error.message : String(error) } };
+      }
+    }
+    if (control.method === "GET" && segments.length === 2) {
+      const waitSeconds = Math.min(Math.max(Number(url.searchParams.get("wait")) || 0, 0), 60);
+      const amendment = waitSeconds
+        ? await amendments.waitForDecision(segments[1], waitSeconds * 1000).catch(() => undefined)
+        : await amendments.get(segments[1]);
+      if (!amendment || amendment.runId !== run.id) return { status: 404, body: { error: "Amendment not found" } };
+      return { status: 200, body: amendment };
+    }
+    return { status: 405, body: { error: "Method not allowed" } };
   }
 
   private async updateStatus(runId: string, status: RunStatus): Promise<void> {

@@ -1,4 +1,4 @@
-export type RunStatus = "pending" | "starting" | "running" | "completed" | "failed" | "stopping" | "stopped";
+export type RunStatus = "pending" | "starting" | "running" | "paused" | "completed" | "failed" | "stopping" | "stopped";
 export type EventCategory = "agent" | "filesystem" | "process" | "network" | "secret" | "mcp" | "git" | "policy" | "runtime";
 export type EventSeverity = "info" | "low" | "medium" | "high" | "critical";
 export type EvidenceSource = "runtime" | "filesystem" | "proxy" | "git" | "agent_reported" | "reviewer";
@@ -78,7 +78,33 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
 }
+
+export interface ProjectScope {
+  folders: Array<{ path: string; access: "none" | "read" | "read_write" }>;
+  hosts: string[];
+  secrets: string[];
+  mcpServers: string[];
+  tools: string[];
+}
+
+/** A repo plus the saved sandbox settings New request starts from when the project is opened. */
+export interface Project {
+  id: string;
+  name: string;
+  repoPath: string;
+  branch?: string;
+  agentKind?: string;
+  runtime: RuntimeProviderKind;
+  scope: ProjectScope;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+export type ProjectInput = Omit<Project, "id" | "createdAt" | "updatedAt" | "lastOpenedAt">;
 
 export interface RunFilesResponse {
   runId: string;
@@ -130,6 +156,21 @@ export interface RepoTreeListing {
   entries: RepoTreeEntry[];
 }
 
+export interface HostFolderEntry {
+  name: string;
+  path: string;
+  isGitRepo: boolean;
+}
+
+export interface HostFolderListing {
+  dir: string;
+  parent: string | null;
+  home: string;
+  isGitRepo: boolean;
+  entries: HostFolderEntry[];
+  nativeDialog: boolean;
+}
+
 export interface RuntimeStatus {
   docker: { available: boolean; image: string; imagePresent: boolean; detail?: string };
   lima: { available: boolean; baseVm: string; baseVmPresent: boolean; agentVms: Record<string, { vm: string; present: boolean }>; detail?: string };
@@ -174,6 +215,8 @@ export interface PublicUser {
 export interface AuthStatus {
   authenticated: boolean;
   needsBootstrap: boolean;
+  googleEnabled?: boolean;
+  openSignup?: boolean;
 }
 
 export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";
@@ -472,12 +515,14 @@ export interface CreateRunBody {
   intent?: AgentIntentDraft;
   intentId?: string;
   requestId?: string;
+  projectId?: string;
 }
 
 export interface GenerateIntentBody {
   taskId: string;
   agentId: string;
   requestId?: string;
+  projectId?: string;
   repo?: { path: string; branch?: string };
   agent?: AgentProfileConfig;
   command?: string[];

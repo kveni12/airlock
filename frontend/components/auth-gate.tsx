@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Image from "next/image";
-import { AgentGuardApiError, bootstrapAdmin, getAuthStatus, getCurrentUser, login, logout } from "@/lib/api";
+import { AgentGuardApiError, bootstrapAdmin, getAuthStatus, getCurrentUser, googleSignInUrl, login, logout, registerAccount } from "@/lib/api";
 import type { PublicUser } from "@/lib/contracts";
 
 interface AuthState {
@@ -16,12 +16,14 @@ export function useAuth(): AuthState {
   return useContext(AuthContext);
 }
 
-type Phase = "loading" | "login" | "setup" | "ready" | "offline";
+type Phase = "loading" | "login" | "register" | "setup" | "ready" | "offline";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [offlineMessage, setOfflineMessage] = useState("");
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [openSignup, setOpenSignup] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -37,6 +39,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
     try {
       const status = await getAuthStatus();
+      setGoogleEnabled(Boolean(status.googleEnabled));
+      setOpenSignup(Boolean(status.openSignup));
       setPhase(status.needsBootstrap ? "setup" : "login");
     } catch (error) {
       setOfflineMessage(error instanceof Error ? error.message : String(error));
@@ -51,8 +55,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await logout().catch(() => undefined);
     setUser(null);
-    setPhase("login");
-  }, []);
+    setPhase("loading");
+    await refresh();
+  }, [refresh]);
 
   if (phase === "loading") return <CenteredCard><p className="text-sm text-[#64717c]">Checking your session…</p></CenteredCard>;
   if (phase === "offline") {
@@ -63,7 +68,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     </CenteredCard>;
   }
   if (phase === "setup") return <CenteredCard><SetupForm onDone={(created) => { setUser(created); setPhase("ready"); }} /></CenteredCard>;
-  if (phase === "login") return <CenteredCard><LoginForm onDone={(signedIn) => { setUser(signedIn); setPhase("ready"); }} /></CenteredCard>;
+  if (phase === "login") return <CenteredCard><LoginForm googleEnabled={googleEnabled} openSignup={openSignup} onRegister={() => setPhase("register")} onDone={(signedIn) => { setUser(signedIn); setPhase("ready"); }} /></CenteredCard>;
+  if (phase === "register") return <CenteredCard><RegisterForm onBack={() => setPhase("login")} onDone={(created) => { setUser(created); setPhase("ready"); }} /></CenteredCard>;
 
   return <AuthContext.Provider value={{ user, signOut }}>{children}</AuthContext.Provider>;
 }
@@ -84,11 +90,19 @@ const inputCls = "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm";
 const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#64717c]";
 const submitCls = "mt-5 w-full rounded-lg bg-[#182a33] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60";
 
-function LoginForm({ onDone }: { onDone: (user: PublicUser) => void }) {
+function LoginForm({ googleEnabled, openSignup, onRegister, onDone }: { googleEnabled: boolean; openSignup: boolean; onRegister: () => void; onDone: (user: PublicUser) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [googleHref, setGoogleHref] = useState("");
+
+  // Runs in the browser: the return path and the Google callback's ?authError= are both in the URL.
+  useEffect(() => {
+    const reported = new URLSearchParams(window.location.search).get("authError");
+    if (reported) setError(reported);
+    setGoogleHref(googleSignInUrl(window.location.pathname));
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -105,11 +119,48 @@ function LoginForm({ onDone }: { onDone: (user: PublicUser) => void }) {
 
   return <form onSubmit={submit}>
     <h1 className="text-lg font-semibold">Sign in</h1>
-    <p className="mt-1 text-sm text-[#64717c]">Governance actions are recorded against your account.</p>
+    <p className="mt-1 text-sm text-[#64717c]">Approvals, rejections and rule edits are attributed to the signed-in account in the audit trail.</p>
     <label className="mt-5 block text-sm"><span className={labelCls}>Email</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} required /></label>
     <label className="mt-3 block text-sm"><span className={labelCls}>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} required /></label>
     {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
     <button type="submit" disabled={busy} className={submitCls}>{busy ? "Signing in…" : "Sign in"}</button>
+    {googleEnabled ? <>
+      <div className="my-4 flex items-center gap-3 text-xs uppercase tracking-wider text-[#64717c]"><span className="h-px flex-1 bg-[#e3e3e0]" />or<span className="h-px flex-1 bg-[#e3e3e0]" /></div>
+      <a href={googleHref} className="flex w-full items-center justify-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Continue with Google</a>
+    </> : null}
+    {openSignup ? <p className="mt-4 text-center text-sm text-[#64717c]">No account yet? <button type="button" onClick={onRegister} className="font-semibold text-[#182a33] underline">Create one</button></p> : null}
+  </form>;
+}
+
+function RegisterForm({ onBack, onDone }: { onBack: () => void; onDone: (user: PublicUser) => void }) {
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      onDone(await registerAccount({ email, password, displayName }));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <form onSubmit={submit}>
+    <h1 className="text-lg font-semibold">Create an account</h1>
+    <p className="mt-1 text-sm text-[#64717c]">You get an operator account; approvals and edits you make are attributed to it.</p>
+    <label className="mt-5 block text-sm"><span className={labelCls}>Name</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={inputCls} /></label>
+    <label className="mt-3 block text-sm"><span className={labelCls}>Email</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} required /></label>
+    <label className="mt-3 block text-sm"><span className={labelCls}>Password</span><input type="password" autoComplete="new-password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} required /><span className="mt-1 block text-xs text-[#64717c]">At least 12 characters.</span></label>
+    {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
+    <button type="submit" disabled={busy} className={submitCls}>{busy ? "Creating…" : "Create account"}</button>
+    <p className="mt-4 text-center text-sm text-[#64717c]">Already have one? <button type="button" onClick={onBack} className="font-semibold text-[#182a33] underline">Sign in</button></p>
   </form>;
 }
 

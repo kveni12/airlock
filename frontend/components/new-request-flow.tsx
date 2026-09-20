@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ArrowDown, Check, Plus, ShieldAlert, ShieldCheck, X } from "lucide-react";
-import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
-import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, getProject, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
+import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, Project, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { OPEN_PROJECT_KEY } from "./projects-list";
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, DEFAULT_SCOPE, scopeToPermissions, setFolderAccess, summarizeScope, type AccessScope } from "./access-scope";
 import { FindingCard } from "./finding-card";
+import { RepoPathField } from "./folder-picker";
 import { RuntimeStatusPanel } from "./runtime-status";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
@@ -54,8 +56,30 @@ export function NewRequestFlow() {
   const [agentBinary, setAgentBinary] = useState("");
   const [scope, setScope] = useState<AccessScope>(DEFAULT_SCOPE);
   const [accessGaps, setAccessGaps] = useState<AccessGapReport | null>(null);
-  const loadAgentProfiles = useCallback((signal: AbortSignal) => getAgentProfiles(signal), []);
-  const profiles = useResource<AgentProfile[]>(loadAgentProfiles, 60_000);
+  const [project, setProject] = useState<Project | null>(null);
+  const searchParams = useSearchParams();
+  const projectParam = searchParams.get("project");
+
+  useEffect(() => {
+    const id = projectParam ?? window.localStorage.getItem(OPEN_PROJECT_KEY);
+    if (!id) return;
+    const controller = new AbortController();
+    getProject(id, controller.signal).then((loadedProject) => {
+      setProject(loadedProject);
+      setRepoPath(loadedProject.repoPath);
+      setProvider(loadedProject.runtime);
+      setScope({ ...loadedProject.scope, folders: loadedProject.scope.folders.map((folder) => ({ ...folder })) });
+      if (loadedProject.agentKind && PICKABLE_KINDS.includes(loadedProject.agentKind)) {
+        setAgentChoice(loadedProject.agentKind);
+        setAgentId((current) => current === "demo-planner" ? `${loadedProject.agentKind}-planner` : current);
+        setBuilderAgentId((current) => current === "demo-builder" ? `${loadedProject.agentKind}-builder` : current);
+      }
+    }).catch(() => { if (!controller.signal.aborted) window.localStorage.removeItem(OPEN_PROJECT_KEY); });
+    return () => controller.abort();
+  }, [projectParam]);
+
+  const detachProject = () => { setProject(null); window.localStorage.removeItem(OPEN_PROJECT_KEY); router.replace("/requests/new"); };
+  const profiles = useResource<AgentProfile[]>((signal) => getAgentProfiles(signal), 60_000);
   const selectedProfile = profiles.data?.find((p) => p.kind === agentChoice);
   const usingRealAgent = agentChoice !== "script";
   const timeoutMs = usingRealAgent ? REAL_AGENT_TIMEOUT_MS : SCRIPT_TIMEOUT_MS;
@@ -142,7 +166,8 @@ export function NewRequestFlow() {
         taskId,
         agentId,
         requestId: requestResult.request.id,
-        repo: { path: repoPath },
+        repo: { path: repoPath, ...(project?.branch ? { branch: project.branch } : {}) },
+        projectId: project?.id,
         agent: agentConfig(),
         command: usingRealAgent ? undefined : shell(plannerCommand),
         permissions: scopeToPermissions(scope, "planner"),
@@ -163,7 +188,8 @@ export function NewRequestFlow() {
     const { runId } = await createRun({
       taskId,
       agentId: builderAgentId,
-      repo: { path: repoPath },
+      repo: { path: repoPath, ...(project?.branch ? { branch: project.branch } : {}) },
+      projectId: project?.id,
       agent: agentConfig(requestResult?.request.rawPrompt ?? prompt),
       command: usingRealAgent ? undefined : shell(builderCommand),
       runtime: { provider },
@@ -181,15 +207,20 @@ export function NewRequestFlow() {
   const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#64717c]";
   const agentWorkspaceFields = <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
     <p className="text-sm font-semibold">Coding agent &amp; project</p>
+    {project ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#d1b191] bg-[#f6f2ec] px-3 py-2 text-sm">
+      <span>Project <strong>{project.name}</strong> is open. Its repository, runtime, agent, and access settings are loaded below.</span>
+      <Link href={`/projects/${encodeURIComponent(project.id)}`} className="underline">Edit project settings</Link>
+      <button type="button" onClick={detachProject} className="text-[#64717c] underline">Start without a project</button>
+    </div> : <p className="text-xs text-[#64717c]">Tip: <Link href="/projects" className="underline">open a project</Link> to load its saved settings.</p>}
     <div className="grid gap-3 md:grid-cols-2">
       <label className="block text-sm"><span className={labelCls}>Coding agent</span>
         <select value={agentChoice} onChange={(e) => chooseAgent(e.target.value)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
-          <option value="script">Shell command (demo scripts / custom)</option>
+          <option value="script">Shell command (scripted demo builder / custom)</option>
           {(profiles.data ?? []).filter((p) => PICKABLE_KINDS.includes(p.kind)).map((p) => <option key={p.kind} value={p.kind}>{p.displayName}</option>)}
         </select>
         {profiles.error && <span className="mt-1 block text-xs text-[#9a3d31]">Could not load agent profiles: {profiles.error}</span>}
       </label>
-      <label className="block text-sm"><span className={labelCls}>Project repository</span><input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="Path on the machine running Periscope" className={inputCls} /></label>
+      <div className="text-sm"><RepoPathField value={repoPath} onChange={setRepoPath} mono={false} /></div>
       <label className="block text-sm"><span className={labelCls}>Isolation</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
           <option value="process">process — no isolation, runs on this machine on a temp copy</option>
@@ -308,6 +339,7 @@ export function NewRequestFlow() {
             {!usingRealAgent && <label className="block"><span className={labelCls}>Coding command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className={inputCls} /></label>}
           </div>
         </details>
+        {!usingRealAgent && builderCommand.includes("agentguard-intent-demo-builder") && !repoPath.includes("intent-demo-repo") && <p className="text-xs text-[#9a3d31]">The scripted demo builder only works in <span className="mono">fixtures/intent-demo-repo</span>. Choose a coding agent or change the command for another project.</p>}
         <div className="rounded-xl border bg-[#f6f2ec] p-4">
           <p className="text-sm font-semibold">The coding run will start with this access</p>
           <ul className="mt-2 space-y-0.5 text-sm">{summarizeScope(scope, provider).map((line) => <li key={line}>{line}</li>)}</ul>
