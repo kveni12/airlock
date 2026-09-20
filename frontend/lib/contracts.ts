@@ -552,3 +552,40 @@ export interface GenerateIntentBody {
   timeoutMs?: number;
   structuredOutput?: unknown;
 }
+
+export type IntentAmendmentStatus = "pending" | "approved" | "denied";
+
+export interface IntentAmendmentChanges {
+  plannedActions?: string[];
+  expectedFiles?: string[];
+  expectedDependencies?: string[];
+  expectedCommands?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedTools?: string[];
+  expectedSecrets?: string[];
+}
+
+/** A mid-run request from the agent to change its plan and/or gain extra access; the run pauses until decided. */
+export interface IntentAmendment {
+  id: string;
+  runId: string;
+  taskId: string;
+  agentId: string;
+  intentId?: string;
+  resultingIntentId?: string;
+  requestId?: string;
+  reason: string;
+  changes: IntentAmendmentChanges;
+  permissions: PermissionSnapshot;
+  status: IntentAmendmentStatus;
+  channel: "control_channel" | "agent_output";
+  decision?: {
+    actor?: string;
+    reason?: string;
+    at: string;
+    appliedLive: Array<keyof PermissionSnapshot>;
+    deferred: Array<keyof PermissionSnapshot>;
+  };
+  createdAt: string;
+}
