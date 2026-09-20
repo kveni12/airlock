@@ -276,7 +276,7 @@ export function NewRequestFlow() {
 
     <div className="flex justify-center text-[#98a4ad]"><ArrowDown className="size-5" /></div>
 
-    <Section eyebrow="Step 2" title="Planner: generate and review the plan" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
+    <Section eyebrow="Step 2" title="Planner: review the plan and set access" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
       {requestResult && <PlannerBuilderGuide />}
       {!requestResult ? <p className="text-sm text-[#64717c]">Record the request first.</p> : !intent ? <div className="mt-4 space-y-3">
         {agentWorkspaceFields}
