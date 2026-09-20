@@ -71,6 +71,11 @@ export function getAuthStatus(signal?: AbortSignal) {
   return request<AuthStatus>("/api/auth/status", signal);
 }
 
+/** A full page navigation, not a fetch: the browser has to follow Google's redirects. */
+export function googleSignInUrl(returnTo: string): string {
+  return `${API_BASE_URL}/api/auth/google/start?returnTo=${enc(returnTo)}`;
+}
+
 export async function getCurrentUser(signal?: AbortSignal): Promise<PublicUser> {
   return (await request<{ user: PublicUser }>("/api/auth/me", signal)).user;
 }

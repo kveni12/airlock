@@ -4,6 +4,7 @@ import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, Fi
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
 import { registerAuth } from "./auth/authRoutes.js";
+import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
@@ -86,7 +87,11 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   }
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1" });
+  const google = resolveGoogleConfig();
+  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google });
+  if (google) {
+    app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
+  }
 
   const setupToken = await auth.issueSetupToken();
   if (setupToken) {

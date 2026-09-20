@@ -510,8 +510,11 @@ export interface User {
   email: string;
   displayName: string;
   role: UserRole;
-  salt: string;
-  passwordHash: string;
+  /** Absent for accounts that only sign in through Google. */
+  salt?: string;
+  passwordHash?: string;
+  /** Google's stable account identifier, set once the account has signed in with Google. */
+  googleSubject?: string;
   createdAt: string;
   lastLoginAt?: string;
 }
