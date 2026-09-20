@@ -1,7 +1,0 @@
-{
-  "/overview/page": "app/overview/page.js",
-  "/agents/page": "app/agents/page.js",
-  "/activity/page": "app/activity/page.js",
-  "/reviews/page": "app/reviews/page.js",
-  "/reviews/[id]/page": "app/reviews/[id]/page.js"
-}

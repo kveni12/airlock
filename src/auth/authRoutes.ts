@@ -160,7 +160,7 @@ export async function registerAuth(app: FastifyInstance, auth: AuthService, opti
     return { ok: true };
   });
 
-  app.get("/api/auth/me", async (request) => ({ user: request.user }));
+  app.get("/api/auth/me", async (request) => ({ user: request.user ?? null }));
 
   app.get("/api/auth/users", async (request, reply) => {
     if (request.user?.role !== "admin") return reply.code(403).send({ error: "Administrator role required" });

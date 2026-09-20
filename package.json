@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "periscope": "bin/periscope.mjs"
-  },
+  "bin": { "periscope": "bin/periscope.mjs" },
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "dev": "tsx watch src/server.ts",
@@ -22,6 +20,7 @@
     "demo:phase2": "bash scripts/run-phase2-demo.sh",
     "demo:intent": "tsx scripts/run-intent-demo.ts",
     "demo:projects": "tsx scripts/seed-projects.ts",
+    "demo:permissions": "node scripts/permissions-demo.mjs",
     "docker:build": "docker build -t agentguard-runtime:latest -f runtime/Dockerfile .",
     "cli": "node bin/periscope.mjs"
   },

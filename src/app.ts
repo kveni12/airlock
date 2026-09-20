@@ -1,9 +1,10 @@
+import { localAgent } from "../shared/local-agents.mjs";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingClassification, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
-import { openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
+import { authDisabled, openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
 import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
@@ -12,6 +13,8 @@ import { IntentService } from "./intent/intentService.js";
 import { IntentAmendmentService } from "./intent/intentAmendmentService.js";
 import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
+import { suggestScope } from "./projects/suggestScope.js";
+import { validateLocalScope } from "./runtime/localWorkspace.js";
 import { ProjectService } from "./projects/projectService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
@@ -23,6 +26,7 @@ import { RunInsightService } from "./dashboard/runInsightService.js";
 import { RunManifestService, manifestToMarkdown } from "./manifest/runManifestService.js";
 import { PullRequestError, PullRequestService } from "./manifest/pullRequestService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
+import { listRunDirectory } from "./repo/runFiles.js";
 import { listRepoDirectory } from "./repo/repoTree.js";
 import { listHostFolders, nativeFolderDialogAvailable, pickHostFolder } from "./repo/hostFolders.js";
 
@@ -101,16 +105,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   }
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  const authDisabled = process.env.PERISCOPE_AUTH_DISABLED === "1";
-  if (!authDisabled) {
-    const google = resolveGoogleConfig();
-    await registerAuth(app, auth, {
-      allowedOrigins,
-      cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
-      cookieSameSite: resolveCookieSameSite(),
-      google,
-      openSignup: openSignupEnabled()
-    });
+  const google = resolveGoogleConfig();
+  // Keep session endpoints available in demo mode; the auth hook handles bypass.
+  await registerAuth(app, auth, {
+    allowedOrigins,
+    cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
+    cookieSameSite: resolveCookieSameSite(),
+    google,
+    openSignup: openSignupEnabled()
+  });
+  if (!authDisabled()) {
     if (google) app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
     const setupToken = await auth.issueSetupToken();
     if (setupToken) {
@@ -257,6 +261,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     }
   });
 
+  app.get("/api/runs/:id/tree", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { dir = "" } = request.query as { dir?: string };
+    const run = await store.getRun(id);
+    const permissions = await store.getPermissions(id);
+    if (!run || !permissions) return reply.code(404).send({ error: "Run not found" });
+    try { return await listRunDirectory(run, permissions, dir); }
+    catch { return reply.code(400).send({ error: "Folder unavailable. The workspace may have been removed, or the path is outside it." }); }
+  });
+
   app.get("/api/runs/:id/files", async (request, reply) => {
     const { id } = request.params as { id: string };
     const run = await store.getRun(id);
@@ -308,6 +322,22 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
+  });
+
+  app.post("/api/projects/suggest-permissions", async (request, reply) => {
+    try {
+      const body = request.body as { repoPath?: string; description?: string; agentKind?: string };
+      if (typeof body.repoPath !== "string" || typeof body.description !== "string" || body.description.length > 20000) throw new Error("Provide a folder and a description of up to 20,000 characters");
+      return await suggestScope(body.repoPath, await requests.preview(body.description), body.agentKind);
+    } catch (error) { return reply.code(400).send({ error: errorMessage(error) }); }
+  });
+  app.post("/api/projects/validate-local", async (request, reply) => {
+    try {
+      const body = request.body as { repoPath: string; agentKind?: string; scope: { folders: PermissionSnapshot["filesystem"]; hosts: string[] } };
+      await validateLocalScope(body.repoPath, { filesystem: body.scope.folders });
+      for (const host of localAgent(body.agentKind).hosts) if (!body.scope.hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) throw new Error(`${localAgent(body.agentKind).name} account login requires ${host}`);
+      return { ok: true };
+    } catch (error) { return reply.code(400).send({ error: errorMessage(error) }); }
   });
 
   app.get("/api/projects", async () => projects.list());

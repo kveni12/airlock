@@ -165,7 +165,9 @@ describe("IntentAlignmentService", () => {
     );
     expect((await store.getIntent(created.id))?.supersededBy).toBe(revised.id);
     expect(intents.executionBlockReason((await store.getIntent(created.id))!)).toContain("superseded");
-    expect((await service.analyze(revised.id)).alignment.status).toBe("aligned");
+    const aligned = await service.analyze(revised.id);
+    expect(aligned.alignment.status).toBe("aligned");
+    expect(intents.executionBlockReason(aligned.intent)).toContain("requires human approval");
 
     const rejected = await intents.reject(revised.id, { actor: "kveni" });
     expect(intents.executionBlockReason(rejected)).toContain("rejected");

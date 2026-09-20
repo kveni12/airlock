@@ -102,12 +102,14 @@ const server = http.createServer((req, res) => {
   if (EXPECTED && req.headers.authorization !== EXPECTED) return unauthorized(res);
   const path = req.url.split("?")[0];
   if (denied(req, path)) return forbid(res, "Disabled on the public demo: this action would run code on the host.");
-  if (!EXPECTED && req.method === "POST" && LAUNCHES_AGENT.some((re) => re.test(path))) {
+  if (req.method === "POST" && LAUNCHES_AGENT.some((re) => re.test(path))) {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
       const body = Buffer.concat(chunks);
-      const reason = launchDenied(body);
+      let local = false;
+      try { local = JSON.parse(body.toString("utf8")).workspaceMode === "local"; } catch { /* launchDenied validates public JSON below. */ }
+      const reason = local ? "Live local editing is disabled through the public gateway." : !EXPECTED ? launchDenied(body) : null;
       if (reason) return forbid(res, reason);
       proxy(req, res, path, body);
     });

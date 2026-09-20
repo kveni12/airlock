@@ -57,8 +57,8 @@ export class IntentService {
     if (intent.supersededBy) return `Intent ${intent.id} was superseded by ${intent.supersededBy}`;
     if (intent.approval?.status === "rejected") return `Intent ${intent.id} was rejected${intent.approval.reason ? `: ${intent.approval.reason}` : ""}`;
     if (intent.requestId && !intent.alignment) return `Intent ${intent.id} has no request alignment decision yet`;
-    if (intent.alignment?.status === "conflict" && intent.approval?.status !== "approved") {
-      return `Intent ${intent.id} conflicts with the human request and requires human approval before execution`;
+    if (intent.requestId && intent.approval?.status !== "approved") {
+      return `Intent ${intent.id} requires human approval before execution`;
     }
     return undefined;
   }

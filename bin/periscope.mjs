@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Periscope CLI: run an agent's *own* interactive CLI (codex, claude, ...) inside the hardened Docker
-// sandbox scoped by the Project saved for the current folder. Periscope only observes the session.
+// sandbox scoped by the Project saved for the current folder. Codex/Claude/shell edit locally; other commands use copies.
 //
 //   periscope codex [codex args…]        # from inside a repo that has a Project
 //   periscope claude
@@ -184,7 +184,7 @@ async function startRun(repoPath, agentKind, extraArgs, explicitCommand) {
 
 async function main() {
   if (!command || flags.help) {
-    console.log(`usage: periscope <codex|claude|opencode|cursor> [agent args…]\n       periscope run -- <command…>\n       periscope login\nSee the header of ${new URL(import.meta.url).pathname} for flags.`);
+    console.log(`usage: periscope <codex|shell|claude|opencode|cursor> [agent args…]\n       periscope run -- <command…>\n       periscope login\nSee the header of ${new URL(import.meta.url).pathname} for flags.`);
     return;
   }
   if (command === "login") return login();
@@ -193,6 +193,19 @@ async function main() {
   if (command === "run") {
     if (!passthrough.length) fail("usage: periscope run -- <command…>");
     return startRun(repoPath, undefined, [], passthrough);
+  }
+  if (command === "codex" || command === "claude" || command === "shell") {
+    const unknown = Object.keys(flags).filter((key) => !["repo", "project", "api", "ui", "timeout"].includes(key));
+    if (unknown.length) fail(`Unsupported local-session flags: ${unknown.map((key) => `--${key}`).join(", ")}`);
+    if (passthrough.length || rest.length > 1) fail("Local sessions accept a project ID or --project <name|id>; agent arguments are not supported yet.");
+    if (rest[0]) flags.project ??= rest[0];
+    process.env.PERISCOPE_API = API;
+    process.env.PERISCOPE_UI = UI;
+    if (flags.timeout) process.env.PERISCOPE_SESSION_TIMEOUT_MINUTES = flags.timeout;
+    process.chdir(repoPath);
+    const project = flags.project ? await findProject(repoPath) : undefined;
+    process.argv = [process.argv[0], process.argv[1], `--local-${command}`, ...(project ? [project.id] : [])];
+    return import("../scripts/permissions-demo.mjs");
   }
   const kind = AGENTS[command];
   if (!kind) fail(`unknown agent "${command}" (use ${Object.keys(AGENTS).join(", ")}, or \`run -- <command>\`)`);

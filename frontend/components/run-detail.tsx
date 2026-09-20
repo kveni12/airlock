@@ -41,6 +41,7 @@ export function RunDetail({ runId }: { runId: string }) {
           <h1 className="mt-3 text-3xl font-semibold tracking-[-.04em]">{run.taskId}</h1>
           <p className="mono mt-1 text-xs text-[#64717c]">{run.id} · agent {run.agentId} · {formatDateTime(run.createdAt)}{run.completedAt && ` → ${formatTime(run.completedAt)}`}{run.exitCode != null && ` · exit ${run.exitCode}`}</p>
           {run.failureReason && <p className="mt-2 text-sm text-[#9a3d31]">{run.failureReason}</p>}
+          {run.workspaceMode === "local" && <p className="mt-2 text-sm">Live local session: permitted edits change <span className="mono">{run.repoPath}</span> immediately. Stopping the session does not undo them.</p>}
           {run.parentRunId && <p className="mt-1 text-xs text-[#64717c]">Resolves finding from <Link className="underline" href={`/runs/${run.parentRunId}`}>{run.parentRunId}</Link></p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -52,7 +53,7 @@ export function RunDetail({ runId }: { runId: string }) {
           {d.review && d.review.status === "needs_human" && <ActionButton variant="danger" onClick={async () => { const reason = window.prompt("Why are you rejecting this run's changes?", ""); if (reason === null) return; await rejectReview(d.review!.id, { actor: "human", reason: reason || undefined }); await refreshAll(); }}>Reject review</ActionButton>}
           {d.review && <Link href={`/reviews/${d.review.id}`} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]">Open review</Link>}
           <Link href={`/runs/${run.id}/manifest`} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]"><FileText className="size-3.5" />Run manifest</Link>
-          {d.review?.status === "approved" && !run.pullRequest && <ActionButton onClick={async () => { const branch = window.prompt("Branch name for the reviewed changes", `periscope/${run.id}`); if (branch === null) return; await createPullRequestFromRun(run.id, { branch }); await refreshAll(); }}><span className="inline-flex items-center gap-1.5"><GitPullRequestArrow className="size-3.5" />Create PR branch</span></ActionButton>}
+          {d.review?.status === "approved" && !run.pullRequest && run.workspaceMode !== "local" && <ActionButton onClick={async () => { const branch = window.prompt("Branch name for the reviewed changes", `periscope/${run.id}`); if (branch === null) return; await createPullRequestFromRun(run.id, { branch }); await refreshAll(); }}><span className="inline-flex items-center gap-1.5"><GitPullRequestArrow className="size-3.5" />Create PR branch</span></ActionButton>}
         </div>
       </div>
       {run.pullRequest && <p className="mt-4 flex flex-wrap items-center gap-2 text-sm"><GitPullRequestArrow className="size-4 text-[#19734a]" /><span>Reviewed diff committed to branch <span className="mono">{run.pullRequest.branch}</span> ({run.pullRequest.commit.slice(0, 10)}) in <span className="mono">{run.repoPath}</span>{run.pullRequest.pushed ? ` · pushed to ${run.pullRequest.remote}` : " · not pushed"}</span>{run.pullRequest.compareUrl && <a className="underline" href={run.pullRequest.compareUrl} target="_blank" rel="noreferrer">Open pull request</a>}</p>}
@@ -132,7 +133,7 @@ export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onC
       <KeyValue label="Expected commands"><Chips items={intent.expectedCommands} /></KeyValue>
       <KeyValue label="Expected dependencies"><Chips items={intent.expectedDependencies} /></KeyValue>
       <KeyValue label="Expected network"><Chips items={intent.expectedNetwork} /></KeyValue>
-      <KeyValue label="Expected keys"><Chips items={intent.expectedSecrets} /></KeyValue>
+      <KeyValue label="Expected secrets"><Chips items={intent.expectedSecrets} /></KeyValue>
       <KeyValue label="Expected MCP / tools"><Chips items={[...intent.expectedMcpServers, ...intent.expectedTools]} /></KeyValue>
       <KeyValue label="Constraints"><Chips items={intent.constraints} mono={false} /></KeyValue>
       {intent.assumptions.length > 0 && <KeyValue label="Assumptions"><Chips items={intent.assumptions} mono={false} /></KeyValue>}
@@ -146,7 +147,7 @@ export function PermissionsSection({ permissions }: { permissions?: PermissionSn
     {!permissions ? <p className="text-sm text-[#64717c]">No permission snapshot recorded.</p> : <dl className="space-y-3">
       <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "can change" : p.access === "read" ? "read only" : "no access"}`)} /></KeyValue>
       <KeyValue label="Network"><Chips items={permissions.network ?? []} /></KeyValue>
-      <KeyValue label="Keys"><Chips items={permissions.secrets ?? []} /></KeyValue>
+      <KeyValue label="Secrets"><Chips items={permissions.secrets ?? []} /></KeyValue>
       <KeyValue label="MCP servers"><Chips items={(permissions.mcpServers ?? []).map((s) => typeof s === "string" ? s : s.name)} /></KeyValue>
       <KeyValue label="Tools"><Chips items={permissions.tools ?? []} /></KeyValue>
     </dl>}
@@ -172,7 +173,7 @@ export function BehaviorSection({ behavior, intent, violations = new Set<string>
       <KeyValue label="Tests"><ObservedList items={behavior.tests} state={(i) => i.passed === undefined ? "unknown" : i.passed ? "ok" : "failed"} suffix={(i) => i.passed === undefined ? "result unknown" : i.passed ? "passed" : "failed"} /></KeyValue>
       <KeyValue label="Dependencies added"><ObservedList items={behavior.dependenciesAdded} state={(i) => violated(i.name) ? "violation" : intent && !deps.has(i.name) ? "undeclared" : "ok"} /></KeyValue>
       <KeyValue label="Network destinations"><ObservedList items={behavior.networkDestinations} state={(i) => violated(i.name) || i.allowed === false ? "violation" : intent && !net.has(i.name) ? "undeclared" : "ok"} suffix={(i) => i.allowed === false ? "blocked by policy" : undefined} /></KeyValue>
-      <KeyValue label="Keys">{secretsUnavailable ? <UnavailableNote reason={(behavior.secrets as { reason: string }).reason} /> : <ObservedList items={behavior.secrets as ObservedItem[]} />}</KeyValue>
+      <KeyValue label="Secrets">{secretsUnavailable ? <UnavailableNote reason={(behavior.secrets as { reason: string }).reason} /> : <ObservedList items={behavior.secrets as ObservedItem[]} />}</KeyValue>
       <KeyValue label="MCP calls"><ObservedList items={behavior.mcpCalls} suffix={(i) => i.server} /></KeyValue>
       <KeyValue label="Tools"><ObservedList items={behavior.tools} /></KeyValue>
     </dl>
