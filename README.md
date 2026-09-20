@@ -37,6 +37,8 @@ GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: p
 
 **Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
 
+`npm run demo:projects` seeds three sample projects over the bundled `fixtures/*` repos (idempotent; `AGENTGUARD_RUNTIME_PROVIDER` picks the runtime, default `docker`).
+
 ### Run a real agent on your own repository
 
 In the UI, open **New request**, record your prompt, then under **Agent & workspace** pick Claude Code / Codex / OpenCode / Cursor / Devin, point **Repo path** at any git checkout on the machine running the backend (e.g. `/Users/you/code/my-app`), and choose a runtime:
