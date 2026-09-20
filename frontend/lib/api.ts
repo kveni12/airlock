@@ -96,8 +96,8 @@ export function googleSignInUrl(returnTo: string): string {
   return `${API_BASE_URL}/api/auth/google/start?returnTo=${enc(returnTo)}`;
 }
 
-export async function getCurrentUser(signal?: AbortSignal): Promise<PublicUser> {
-  return (await request<{ user: PublicUser }>("/api/auth/me", signal)).user;
+export async function getCurrentUser(signal?: AbortSignal): Promise<PublicUser | null> {
+  return (await request<{ user: PublicUser | null }>("/api/auth/me", signal)).user;
 }
 
 export async function login(email: string, password: string): Promise<PublicUser> {
@@ -406,4 +406,16 @@ export function approveAmendment(id: string, body: { actor?: string; reason?: st
 
 export function denyAmendment(id: string, body: { actor?: string; reason?: string } = {}) {
   return post<IntentAmendment>(`/api/intent-amendments/${enc(id)}/deny`, body);
+}
+
+export interface RunTreeEntry { name: string; path: string; kind: "file" | "dir"; access: "none" | "read" | "read_write" }
+export function getRunTree(runId: string, dir = "", signal?: AbortSignal) {
+  return request<{ dir: string; entries: RunTreeEntry[] }>(`/api/runs/${enc(runId)}/tree?dir=${enc(dir)}`, signal);
+}
+
+export function suggestProjectPermissions(repoPath: string, description: string, agentKind = "codex") {
+  return post<{ scope: ProjectInput["scope"]; warnings: string[]; analysis: RequestAnalysis }>("/api/projects/suggest-permissions", { repoPath, description, agentKind });
+}
+export function validateLocalProject(input: ProjectInput) {
+  return post<{ ok: boolean }>("/api/projects/validate-local", input);
 }

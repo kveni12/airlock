@@ -36,16 +36,19 @@ describe("RuntimeManager.recover", () => {
     await store.createRun({ ...base, id: "run_stale", status: "running", workspacePath: stale, cleanupWorkspace: true } as RunRecord, {});
     await store.createRun({ ...base, id: "run_kept", status: "starting", workspacePath: kept, cleanupWorkspace: false } as RunRecord, {});
     await store.createRun({ ...base, id: "run_done", status: "completed", cleanupWorkspace: true } as RunRecord, {});
+    // Even a malformed persisted cleanup flag must never delete a real checkout.
+    await store.createRun({ ...base, id: "run_local", status: "running", workspacePath: directory, workspaceMode: "local", cleanupWorkspace: true } as RunRecord, {});
 
     const manager = new RuntimeManager(store, events, { defaultProvider: "process" });
     const result = await manager.recover();
 
-    expect(result.failedRuns.sort()).toEqual(["run_kept", "run_stale"]);
+    expect(result.failedRuns.sort()).toEqual(["run_kept", "run_local", "run_stale"]);
     expect((await store.getRun("run_stale"))?.status).toBe("failed");
     expect((await store.getRun("run_kept"))?.failureReason).toMatch(/restarted/);
     expect((await store.getRun("run_done"))?.status).toBe("completed");
     await expect(stat(stale)).rejects.toThrow();
     await expect(stat(kept)).resolves.toBeDefined();
+    await expect(stat(directory)).resolves.toBeDefined();
     const runtimeEvents = (await events.getEvents("run_stale")).filter((event) => event.category === "runtime");
     expect(runtimeEvents.map((event) => event.action)).toContain("failed");
   });

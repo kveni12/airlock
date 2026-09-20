@@ -97,3 +97,9 @@ describe("PolicyEngine read-only scope", () => {
     expect(hiddenRead.map((event) => event.metadata?.rule)).toContain("permission_scope");
   });
 });
+
+it("does not blame the agent for unattributed edits to a shared local workspace", async () => {
+  const engine = new PolicyEngine(async () => ({ permissions: { filesystem: [{ path: "/workspace", access: "read" }] } }));
+  await expect(engine.evaluate({ ...baseEvent, resource: "/workspace/infra/prod.tf", metadata: { attribution: "unattributed" } })).resolves.toEqual([]);
+  await expect(engine.evaluate({ ...baseEvent, category: "git", action: "file_changed", resource: "infra/prod.tf", metadata: { attribution: "unattributed" } })).resolves.toEqual([]);
+});

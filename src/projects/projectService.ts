@@ -66,6 +66,7 @@ export function validateProjectInput(value: unknown): ProjectInput {
     ...(optionalString(value.agentKind, "agentKind") ? { agentKind: optionalString(value.agentKind, "agentKind") } : {}),
     runtime: runtime as RuntimeProviderKind,
     scope,
+    ...(optionalString(value.humanIntent, "humanIntent") ? { humanIntent: optionalString(value.humanIntent, "humanIntent") } : {}),
     ...(optionalString(value.notes, "notes") ? { notes: optionalString(value.notes, "notes") } : {})
   };
 }
