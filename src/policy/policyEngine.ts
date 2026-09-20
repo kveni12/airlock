@@ -25,7 +25,7 @@ export class PolicyEngine {
   constructor(private readonly contextForRun: (runId: string) => Promise<PolicyContext | undefined>) {}
 
   async evaluate(event: AgentEvent): Promise<EventInput[]> {
-    if (event.category === "policy") return [];
+    if (event.category === "policy" || event.metadata?.attribution === "unattributed") return [];
 
     const context = await this.contextForRun(event.runId);
     if (!context) return [];

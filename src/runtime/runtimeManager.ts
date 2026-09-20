@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { CreateRunRequest, GitSummary, PermissionSnapshot, RunRecord, RunStatus, RuntimeProviderKind } from "../types.js";
@@ -24,6 +24,7 @@ import { RuntimeSetupService } from "./runtimeSetupService.js";
 import { ProcessProvider } from "./processProvider.js";
 import type { SandboxHandle, SandboxProvider } from "./sandboxProvider.js";
 import { planWorkspaceMounts } from "./sandboxProvider.js";
+import { LocalWorkspaceAudit, validateLocalScope } from "./localWorkspace.js";
 
 export interface RuntimeManagerOptions {
   defaultProvider?: RuntimeProviderKind;
@@ -84,7 +85,7 @@ export class RuntimeManager {
         severity: "high",
         metadata: { reason: "backend_restart" }
       });
-      if (run.workspacePath && run.cleanupWorkspace) {
+      if (run.workspacePath && run.cleanupWorkspace && run.workspaceMode !== "local") {
         await rm(run.workspacePath, { recursive: true, force: true }).catch(() => undefined);
       }
       failedRuns.push(run.id);
@@ -109,6 +110,11 @@ export class RuntimeManager {
     const runtimeProvider = request.runtime?.provider ?? this.options.defaultProvider ?? defaultProvider();
     if (request.interactive && runtimeProvider !== "docker") throw new Error("interactive runs require the docker runtime");
     const permissions = request.permissions ?? {};
+    if (request.workspaceMode === "local") {
+      if (runtimeProvider !== "docker") throw new Error("Local sessions require Docker enforcement");
+      if (request.repo.branch || request.purpose === "planner") throw new Error("Local sessions cannot switch branches or run planners");
+      await validateLocalScope(request.repo.path, permissions);
+    }
     const secretEnvironment = resolveSecretEnvironment(permissions);
     const runtimeEnvironment = { ...agent.environment, ...secretEnvironment };
 
@@ -132,7 +138,8 @@ export class RuntimeManager {
       environmentKeys: Object.keys(runtimeEnvironment),
       timeoutMs: request.timeoutMs ?? 30 * 60 * 1000,
       expectedFiles: request.expectedFiles ?? [],
-      cleanupWorkspace: request.cleanupWorkspace ?? !(request.intentId || request.intent || request.purpose === "resolver"),
+      cleanupWorkspace: request.workspaceMode === "local" ? false : request.cleanupWorkspace ?? !(request.intentId || request.intent || request.purpose === "resolver"),
+      workspaceMode: request.workspaceMode ?? "copy",
       intentId: request.intentId,
       requestId: request.requestId,
       workspaceAccess: request.purpose === "planner" ? "read_only" : "read_write",
@@ -198,13 +205,17 @@ export class RuntimeManager {
     let provider: SandboxProvider | undefined;
     let handle: SandboxHandle | undefined;
     let outputMonitor: AgentOutputMonitor | undefined;
+    let localAudit: LocalWorkspaceAudit | undefined;
 
     try {
       workspacePath = await this.createWorkspace(run);
       run.workspacePath = workspacePath;
       await this.store.updateRun(run.id, { workspacePath });
-      await ensureGitBaseline(workspacePath);
-      await checkoutBranch(workspacePath, run.repoBranch);
+      if (run.workspaceMode === "local") localAudit = await LocalWorkspaceAudit.create(workspacePath);
+      else {
+        await ensureGitBaseline(workspacePath);
+        await checkoutBranch(workspacePath, run.repoBranch);
+      }
 
       beforeGit = await getGitState(workspacePath);
       beforeDependencies = await snapshotDependencies(workspacePath);
@@ -251,6 +262,8 @@ export class RuntimeManager {
           provider: run.runtimeProvider,
           runtime: run.runtimeProvider === "lima" ? run.runtimeBaseVm : run.runtimeImage,
           workspace: "/workspace",
+          workspaceMode: run.workspaceMode ?? "copy",
+          immediateLocalEdits: run.workspaceMode === "local",
           proxyPort,
           networkAllowlist: permissions.network ?? [],
           workspaceMount: mounts.root,
@@ -265,7 +278,7 @@ export class RuntimeManager {
         filesystemEnforced: provider.filesystemScope(mounts) === "enforced",
         onAmendmentRequest: amendments ? (payload) => amendments.request(run.id, payload, "agent_output").then(() => undefined) : undefined
       });
-      const proxyHostname = provider.prepareNetwork ? await provider.prepareNetwork(run) : provider.proxyHostname;
+      const proxyHostname = provider.prepareNetwork ? await provider.prepareNetwork(run, proxyPort) : provider.proxyHostname;
       handle = await provider.create({
         run,
         workspacePath,
@@ -349,7 +362,7 @@ export class RuntimeManager {
       });
 
       await fsMonitor.reconcile();
-      const gitSummary = await this.finishTelemetry(run, workspacePath, beforeGit, beforeDependencies);
+      const gitSummary = await this.finishTelemetry(run, workspacePath, beforeGit, beforeDependencies, await localAudit?.finish());
       const active = this.active.get(run.id);
       let finalStatus: RunStatus = active?.stopping ? "stopped" : exitCode === 0 ? "completed" : "failed";
       let planningViolation: string | undefined;
@@ -392,7 +405,8 @@ export class RuntimeManager {
       await fsMonitor?.stop().catch(() => undefined);
       await networkProxy?.stop().catch(() => undefined);
       this.amendments?.unregisterLiveApplier(run.id);
-      await this.cleanup(run.id, workspacePath, run.cleanupWorkspace, provider, handle);
+      await this.cleanup(run.id, workspacePath, run.workspaceMode !== "local" && run.cleanupWorkspace, provider, handle);
+      await localAudit?.dispose().catch(() => undefined);
       if (!handle) await provider?.releaseNetwork?.(run).catch(() => undefined);
       this.events.clearSecrets(run.id);
     }
@@ -432,9 +446,10 @@ export class RuntimeManager {
     run: RunRecord,
     workspacePath: string,
     beforeGit: GitSummary["before"],
-    beforeDependencies: DependencySnapshot
+    beforeDependencies: DependencySnapshot,
+    localSummary?: GitSummary
   ): Promise<GitSummary> {
-    const gitSummary = await collectGitSummary(workspacePath, beforeGit, beforeDependencies);
+    const gitSummary = localSummary ?? await collectGitSummary(workspacePath, beforeGit, beforeDependencies);
 
     for (const file of gitSummary.files) {
       await this.events.emitEvent({
@@ -444,7 +459,8 @@ export class RuntimeManager {
         category: "git",
         action: "file_changed",
         resource: file,
-        allowed: true
+        allowed: run.workspaceMode === "local" ? undefined : true,
+        metadata: run.workspaceMode === "local" ? { attribution: "unattributed" } : undefined
       });
     }
 
@@ -545,7 +561,11 @@ export class RuntimeManager {
   }
 
   private async createWorkspace(run: RunRecord): Promise<string> {
-    const workspaceRoot = this.options.workspaceRoot ?? os.tmpdir();
+    if (run.workspaceMode === "local") return realpath(run.repoPath);
+    // Docker VMs (for example Colima) may not share macOS's /var/folders temp
+    // tree. Allow runs to live under a directory explicitly shared with the VM.
+    const workspaceRoot = this.options.workspaceRoot ?? process.env.AGENTGUARD_WORKSPACE_ROOT ?? os.tmpdir();
+    await mkdir(workspaceRoot, { recursive: true });
     const workspacePath = await mkdtemp(path.join(workspaceRoot, `agentguard-${run.id}-`));
     await cp(run.repoPath, workspacePath, {
       recursive: true,
@@ -585,6 +605,7 @@ async function assertReadableDirectory(directory: string): Promise<void> {
 }
 
 function validateCreateRun(request: CreateRunRequest): void {
+  if (request.workspaceMode !== undefined && !["copy", "local"].includes(request.workspaceMode)) throw new Error("workspaceMode must be copy or local");
   if (!request.taskId) throw new Error("taskId is required");
   if (!request.agentId) throw new Error("agentId is required");
   if (!request.repo?.path) throw new Error("repo.path is required");

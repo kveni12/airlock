@@ -49,7 +49,7 @@ export interface SandboxProvider {
   /** Remove sandboxes/networks/VMs left behind by runs that are no longer active; returns their run ids. */
   reapOrphans?(activeRunIds: Set<string>): Promise<string[]>;
   /** Optional per-run network setup; returns the hostname the sandbox uses to reach the proxy. */
-  prepareNetwork?(run: RunRecord): Promise<string>;
+  prepareNetwork?(run: RunRecord, proxyPort: number): Promise<string>;
   /** Tear down what prepareNetwork created when the sandbox was never created. */
   releaseNetwork?(run: RunRecord): Promise<void>;
   create(options: SandboxCreateOptions): Promise<SandboxHandle>;
