@@ -104,7 +104,10 @@ Passwords are at least 12 characters and stored as salted scrypt hashes. Session
 
 - `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
 - `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
+- `PERISCOPE_COOKIE_SAMESITE`: `lax` (default), `strict`, or `none`. Use `none` when the dashboard is served from a different site than the API (separate tunnels or hosts), otherwise the browser accepts the cookie at login and never sends it back. `none` implies `Secure`, so both sides must be HTTPS.
 - `PERISCOPE_OPEN_SIGNUP=1`: show "Create an account" on the sign-in page; anyone reaching the instance can create an `operator` account (`POST /api/auth/register`). Off by default — only admins create users.
+
+Sharing a local instance over two tunnels therefore needs all three, e.g. `PERISCOPE_ALLOWED_ORIGINS=https://dashboard.example PERISCOPE_COOKIE_SAMESITE=none npm run dev`, with the frontend built against `NEXT_PUBLIC_AGENTGUARD_API_URL=https://api.example`.
 
 ### Sign in with Google
 
