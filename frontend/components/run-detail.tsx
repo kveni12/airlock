@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { ArrowDown, ArrowLeft, PanelsTopLeft, RefreshCw } from "lucide-react";
-import { approveIntent, approveReview, createReview, getRunDetail, getTimeline, rejectIntent, rejectReview, stopRun } from "@/lib/api";
+import { ArrowDown, ArrowLeft, FileText, GitPullRequestArrow, PanelsTopLeft, RefreshCw } from "lucide-react";
+import { approveIntent, approveReview, createPullRequestFromRun, createReview, getRunDetail, getTimeline, rejectIntent, rejectReview, stopRun } from "@/lib/api";
 import type { AgentIntent, AlignmentSegment, Finding, HumanRequest, ObservedBehavior, ObservedItem, PermissionSnapshot, RequestAnalysis, ResultSummary, RunDetail as RunDetailModel, TimelineEntry } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { groupFindings, violatedResources } from "@/lib/findings";
@@ -52,8 +52,11 @@ export function RunDetail({ runId, initialTab = "chain" }: { runId: string; init
           {d.review && d.review.status === "needs_human" && <ActionButton disabled={openFindings.length > 0} onClick={async () => { await approveReview(d.review!.id, { actor: "human", reason: "Approved from dashboard" }); await refreshAll(); }}>Approve review{openFindings.length > 0 && ` (${openFindings.length} open)`}</ActionButton>}
           {d.review && d.review.status === "needs_human" && <ActionButton variant="danger" onClick={async () => { const reason = window.prompt("Why are you rejecting this run's changes?", ""); if (reason === null) return; await rejectReview(d.review!.id, { actor: "human", reason: reason || undefined }); await refreshAll(); }}>Reject review</ActionButton>}
           {d.review && <Link href={`/reviews/${d.review.id}`} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]">Open review</Link>}
+          <Link href={`/runs/${run.id}/manifest`} className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]"><FileText className="size-3.5" />Run manifest</Link>
+          {d.review?.status === "approved" && !run.pullRequest && <ActionButton onClick={async () => { const branch = window.prompt("Branch name for the reviewed changes", `periscope/${run.id}`); if (branch === null) return; await createPullRequestFromRun(run.id, { branch }); await refreshAll(); }}><span className="inline-flex items-center gap-1.5"><GitPullRequestArrow className="size-3.5" />Create PR branch</span></ActionButton>}
         </div>
       </div>
+      {run.pullRequest && <p className="mt-4 flex flex-wrap items-center gap-2 text-sm"><GitPullRequestArrow className="size-4 text-[#19734a]" /><span>Reviewed diff committed to branch <span className="mono">{run.pullRequest.branch}</span> ({run.pullRequest.commit.slice(0, 10)}) in <span className="mono">{run.repoPath}</span>{run.pullRequest.pushed ? ` · pushed to ${run.pullRequest.remote}` : " · not pushed"}</span>{run.pullRequest.compareUrl && <a className="underline" href={run.pullRequest.compareUrl} target="_blank" rel="noreferrer">Open pull request</a>}</p>}
       <div className="mt-6 grid gap-3 md:grid-cols-3">
         <AlignmentTile label="Request → Intent" segment={d.alignment.requestToIntent} />
         <AlignmentTile label="Intent → Behavior" segment={d.alignment.intentToBehavior} counts={d.alignment.counts} findings={d.findings} />

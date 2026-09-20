@@ -5,6 +5,7 @@ import { getAgentProfiles } from "@/lib/api";
 import type { AgentProfile, Project, ProjectInput, RuntimeProviderKind } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, type AccessScope } from "./access-scope";
+import { RepoPathField } from "./folder-picker";
 import { ActionButton, ErrorBanner } from "./ui";
 
 const PICKABLE_KINDS = ["claude_code", "codex", "opencode", "cursor", "devin"];
@@ -53,7 +54,7 @@ export function ProjectForm({ initial, submitLabel, onSubmit, onCancel }: { init
     {error && <ErrorBanner message={error} />}
     <div className="grid gap-3 md:grid-cols-2">
       <label className="block text-sm"><span className={labelCls}>Project name</span><input value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. billing-service" className={inputCls} /></label>
-      <label className="block text-sm"><span className={labelCls}>Repo path (on the machine running the backend)</span><input value={draft.repoPath} onChange={(e) => set({ repoPath: e.target.value })} placeholder="/Users/you/code/my-app" className={`${inputCls} mono`} /></label>
+      <div className="text-sm"><RepoPathField value={draft.repoPath} onChange={(repoPath) => set({ repoPath })} /></div>
       <label className="block text-sm"><span className={labelCls}>Branch (optional)</span><input value={draft.branch ?? ""} onChange={(e) => set({ branch: e.target.value })} placeholder="main" className={`${inputCls} mono`} /></label>
       <label className="block text-sm"><span className={labelCls}>Default agent</span>
         <select value={draft.agentKind ?? ""} onChange={(e) => chooseAgent(e.target.value)} className={inputCls}>
