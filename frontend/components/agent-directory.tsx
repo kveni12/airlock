@@ -1,19 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback } from "react";
 import { ArrowRight, Bot, Eye, EyeOff, Globe2, KeyRound, Pencil, Plug, Terminal } from "lucide-react";
 import { ConnectionError, EmptyState, LoadingState } from "./backend-state";
 import { RunStatusBadge } from "./ui";
 import { CapabilityItems, FileAccessItems, mcpServerLabels } from "./permission-display";
-import { useAgentGuardSnapshot } from "@/lib/use-snapshot";
+import { loadAgentCapabilities } from "@/lib/api";
+import { useResource } from "@/lib/use-resource";
 import type { PermissionSnapshot, RunRecord } from "@/lib/contracts";
 
 const demo = [{ id: "claude_builder_001", agent: { kind: "claude_code", prompt: "Add OAuth support" }, status: "running", runtimeProvider: "lima" }] as RunRecord[];
 
 export function AgentDirectory() {
-  const { snapshot, loading, error, refresh } = useAgentGuardSnapshot();
+  const loader = useCallback((signal: AbortSignal) => loadAgentCapabilities(signal), []);
+  const { data: snapshot, loading, error, refresh } = useResource(loader, 15_000);
   if (loading && !snapshot) return <Page><LoadingState /></Page>;
-  const runs = snapshot?.runs.length ? latestRunPerAgent(snapshot.runs) : demo;
+  const runs = snapshot?.runs.length ? snapshot.runs : demo;
   if (snapshot && snapshot.runs.length === 0) return <Page><EmptyState title="No agents observed" body="Agents appear after the backend creates its first run." /></Page>;
 
   return <Page>
@@ -70,6 +73,5 @@ function Header({ icon: Icon, title, subtitle }: { icon: typeof Bot; title: stri
 
 function PermissionColumn({ children }: { children: React.ReactNode }) { return <td className="w-36 px-4 py-4">{children}</td>; }
 function Page({ children }: { children: React.ReactNode }) { return <div className="mx-auto max-w-[1600px] space-y-6"><div><p className="eyebrow">Capability inventory</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] md:text-4xl">Agents</h1><p className="mt-2 max-w-3xl text-[#64717c]">What each agent can read, change, and connect to, based on its latest run.</p></div>{children}</div>; }
-function latestRunPerAgent(runs: RunRecord[]) { return [...new Map(runs.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((run) => [run.agentId, run])).values()]; }
 function displayAgent(run: RunRecord) { const names: Record<string, string> = { claude_code: "Claude Code", codex: "OpenAI Codex", opencode: "OpenCode", cursor: "Cursor Agent", devin: "Devin" }; return names[run.agent?.kind ?? ""] ?? run.agentId; }
 const demoPermissions: PermissionSnapshot = { filesystem: [{ path: "/workspace", access: "read" }, { path: "/workspace/src", access: "read_write" }, { path: "/workspace/.env", access: "none" }], network: ["oauth.googleapis.com"], secrets: ["GOOGLE_CLIENT_SECRET"], mcpServers: ["github"], tools: ["git", "npm", "shell"] };

@@ -1,18 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback } from "react";
 import { ArrowLeft, Bot, Globe2, KeyRound, Plug, Terminal } from "lucide-react";
 import { ConnectionError, LoadingState } from "./backend-state";
 import { CapabilityItems, FileAccessTable, mcpServerLabels } from "./permission-display";
 import { RunStatusBadge } from "./ui";
-import { useAgentGuardSnapshot } from "@/lib/use-snapshot";
+import { loadAgentCapability } from "@/lib/api";
+import { useResource } from "@/lib/use-resource";
 import type { RunRecord } from "@/lib/contracts";
 
 export function AgentDetail({ agentId }: { agentId: string }) {
-  const { snapshot, loading, error, refresh } = useAgentGuardSnapshot();
-  if (loading && !snapshot) return <LoadingState />;
-  const run = snapshot?.runs.filter((item) => item.agentId === agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const permissions = run ? snapshot?.permissionsByRun[run.id] : undefined;
+  const loader = useCallback((signal: AbortSignal) => loadAgentCapability(agentId, signal), [agentId]);
+  const { data, loading, error, refresh } = useResource(loader, 15_000);
+  if (loading && !data) return <LoadingState />;
+  const run = data?.run ?? undefined;
+  const permissions = data?.permissions ?? undefined;
 
   return <div className="mx-auto max-w-6xl space-y-6">
     <Link href="/agents" className="inline-flex items-center gap-2 text-sm text-[#64717c]"><ArrowLeft className="size-4" />Back to agents</Link>
