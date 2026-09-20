@@ -10,7 +10,7 @@ import { useAgentGuardSnapshot } from "../lib/use-snapshot";
 import { ConnectionError, LoadingState } from "./backend-state";
 import { FilterChips } from "./ui";
 
-const categoryLabel = (item: string) => (item === "mcp" ? "MCP" : item === "secret" ? "key" : item);
+const categoryLabel = (item: string) => (item === "mcp" ? "MCP" : item === "secret" ? "Secrets" : item);
 
 const filters: Array<"all" | EventCategory> = ["all", "agent", "filesystem", "process", "network", "secret", "mcp", "git", "policy", "runtime"];
 
@@ -63,7 +63,7 @@ export function ActivityFeed({ initialFilter = "all" }: { initialFilter?: (typeo
     {error && <div className="mb-5"><ConnectionError message={error} onRetry={refresh} /></div>}
     <div className="mb-5 flex flex-col gap-3 sm:flex-row">
       <label className="relative flex-1"><Search className="absolute left-3 top-3 size-4 text-[#76838d]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search action, resource, run or task id" className="w-full rounded-lg border bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[#19734a]" /></label>
-      <FilterChips items={filters} value={filter} onChange={setFilter} label={(item) => (item === "all" ? "All" : item === "mcp" ? "MCP" : item[0].toUpperCase() + item.slice(1))} />
+      <FilterChips items={filters} value={filter} onChange={setFilter} label={(item) => (item === "all" ? "All" : item === "mcp" ? "MCP" : item === "secret" ? "Secrets" : item[0].toUpperCase() + item.slice(1))} />
     </div>
     <div className="card overflow-hidden">
       {events.length === 0 ? <p className="p-8 text-center text-sm text-[#64717c]">No events match this filter{query ? " or search" : ""}.</p> : events.map((event) => {

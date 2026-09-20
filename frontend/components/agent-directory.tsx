@@ -39,7 +39,7 @@ export function AgentDirectory() {
               <Header icon={Eye} title="Read only" subtitle="Can view" />
               <Header icon={Pencil} title="Can change" subtitle="Can edit" />
               <Header icon={EyeOff} title="No access" subtitle="Hidden" />
-              <Header icon={KeyRound} title="Keys" subtitle="Injected names" />
+              <Header icon={KeyRound} title="Secrets" subtitle="Injected environment variables" />
               <Header icon={Plug} title="MCP servers" subtitle="Declared" />
               <Header icon={Globe2} title="Network" subtitle="Allowed hosts" />
               <Header icon={Terminal} title="Tools" subtitle="Declared" />
@@ -58,7 +58,7 @@ export function AgentDirectory() {
                 <PermissionColumn><FileAccessItems permissions={permissions} access="read" limit={3} /></PermissionColumn>
                 <PermissionColumn><FileAccessItems permissions={permissions} access="read_write" limit={3} /></PermissionColumn>
                 <PermissionColumn><FileAccessItems permissions={permissions} access="none" limit={3} /></PermissionColumn>
-                <PermissionColumn><CapabilityItems items={permissions.secrets ?? []} empty="No keys" limit={3} /></PermissionColumn>
+                <PermissionColumn><CapabilityItems items={permissions.secrets ?? []} empty="No secrets" limit={3} /></PermissionColumn>
                 <PermissionColumn><CapabilityItems items={mcpServerLabels(permissions)} empty="No MCP" limit={3} /></PermissionColumn>
                 <PermissionColumn><CapabilityItems items={permissions.network ?? []} empty="No hosts" limit={3} /></PermissionColumn>
                 <PermissionColumn><CapabilityItems items={permissions.tools ?? []} empty="No tools" limit={3} /></PermissionColumn>
