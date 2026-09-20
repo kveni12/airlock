@@ -174,6 +174,7 @@ export interface PublicUser {
 export interface AuthStatus {
   authenticated: boolean;
   needsBootstrap: boolean;
+  googleEnabled?: boolean;
 }
 
 export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";

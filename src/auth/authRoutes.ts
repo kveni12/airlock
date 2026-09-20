@@ -2,6 +2,13 @@ import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PublicUser } from "../types.js";
 import { AuthService, SESSION_COOKIE } from "./authService.js";
+import {
+  GoogleAuthorizationStore,
+  exchangeCodeForIdentity,
+  mayProvision,
+  safeReturnPath,
+  type GoogleOAuthConfig
+} from "./googleOAuth.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -10,11 +17,21 @@ declare module "fastify" {
 }
 
 /** Reachable without a session: everything else requires one. */
-const PUBLIC_PATHS = new Set(["/health", "/api/auth/status", "/api/auth/bootstrap", "/api/auth/login", "/api/auth/logout"]);
+const PUBLIC_PATHS = new Set([
+  "/health",
+  "/api/auth/status",
+  "/api/auth/bootstrap",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/auth/google/start",
+  "/api/auth/google/callback"
+]);
 
 export interface AuthPluginOptions {
   allowedOrigins: string[];
   cookieSecure: boolean;
+  /** Google sign-in is offered only when an OAuth client is configured. */
+  google?: GoogleOAuthConfig;
 }
 
 export async function registerAuth(app: FastifyInstance, auth: AuthService, options: AuthPluginOptions): Promise<void> {
@@ -35,8 +52,40 @@ export async function registerAuth(app: FastifyInstance, auth: AuthService, opti
 
   app.get("/api/auth/status", async () => ({
     authenticated: false,
-    needsBootstrap: await auth.needsBootstrap()
+    needsBootstrap: await auth.needsBootstrap(),
+    googleEnabled: Boolean(options.google)
   }));
+
+  const pendingGoogleAuthorizations = new GoogleAuthorizationStore();
+
+  app.get("/api/auth/google/start", async (request, reply) => {
+    const google = options.google;
+    if (!google) return reply.code(404).send({ error: "Google sign-in is not configured" });
+    const returnTo = safeReturnPath((request.query as Record<string, unknown> | undefined)?.returnTo);
+    const { url } = pendingGoogleAuthorizations.start(google, returnTo);
+    return reply.redirect(url);
+  });
+
+  app.get("/api/auth/google/callback", async (request, reply) => {
+    const google = options.google;
+    if (!google) return reply.code(404).send({ error: "Google sign-in is not configured" });
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const pending = pendingGoogleAuthorizations.claim(typeof query.state === "string" ? query.state : undefined);
+    if (!pending) return reply.code(400).send({ error: "This sign-in link has expired. Start again." });
+    if (typeof query.code !== "string") {
+      return reply.redirect(`${pending.returnTo}?authError=${encodeURIComponent("Google sign-in was cancelled")}`);
+    }
+
+    try {
+      const identity = await exchangeCodeForIdentity(google, query.code, pending.codeVerifier);
+      const { user, token } = await auth.loginWithGoogle(identity, mayProvision(identity.email, google));
+      setSessionCookie(reply, auth, options, token);
+      request.log.info({ email: user.email }, "Google sign-in");
+      return reply.redirect(pending.returnTo);
+    } catch (error: unknown) {
+      return reply.redirect(`${pending.returnTo}?authError=${encodeURIComponent(errorMessage(error))}`);
+    }
+  });
 
   app.post("/api/auth/bootstrap", async (request, reply) => {
     try {
@@ -105,6 +154,11 @@ async function establishSession(
   password: unknown
 ): Promise<PublicUser> {
   const { user, token } = await auth.login(email, password);
+  setSessionCookie(reply, auth, options, token);
+  return user;
+}
+
+function setSessionCookie(reply: FastifyReply, auth: AuthService, options: AuthPluginOptions, token: string): void {
   reply.setCookie(SESSION_COOKIE, token, {
     path: "/",
     httpOnly: true,
@@ -112,7 +166,6 @@ async function establishSession(
     secure: options.cookieSecure,
     maxAge: auth.cookieMaxAgeSeconds
   });
-  return user;
 }
 
 /**

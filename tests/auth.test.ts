@@ -62,9 +62,16 @@ describe("authentication", () => {
   it("reports that the instance needs bootstrapping and leaves /health open", async () => {
     expect((await app.inject({ method: "GET", url: "/api/auth/status" })).json()).toEqual({
       authenticated: false,
-      needsBootstrap: true
+      needsBootstrap: true,
+      googleEnabled: false
     });
     expect((await app.inject({ method: "GET", url: "/health" })).statusCode).toBe(200);
+  });
+
+  it("reports google sign-in as unavailable and refuses to start it when unconfigured", async () => {
+    expect((await app.inject({ method: "GET", url: "/api/auth/status" })).json().googleEnabled).toBe(false);
+    expect((await app.inject({ method: "GET", url: "/api/auth/google/start" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/api/auth/google/callback?code=x&state=y" })).statusCode).toBe(404);
   });
 
   it("refuses to bootstrap without the setup token", async () => {
