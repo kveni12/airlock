@@ -233,7 +233,7 @@ export function NewRequestFlow() {
     {agentChoice === "devin" && <p className="text-xs text-[#64717c]">Devin works in its own cloud VM, so Periscope cannot observe it directly. The bridge starts a Devin session via the API (needs <span className="mono">DEVIN_API_KEY</span>); the planner returns structured intent, the builder pushes its work to branch <span className="mono">agentguard/&lt;run id&gt;</span> of the repo&apos;s <span className="mono">origin</span> (Devin needs push access), which is then applied to the workspace and diffed. Devin&apos;s messages are agent-reported evidence.</p>}
     <RuntimeStatusPanel provider={provider} agentKind={usingRealAgent ? agentChoice : undefined} />
     {usingRealAgent && selectedProfile && <p className="text-xs text-[#64717c]">{selectedProfile.description}</p>}
-    {provider === "process" && <p className="text-xs text-[#815017]">Process mode has no sandbox. The agent works in a temporary repository copy, but the rest of the machine, network, and keys remain reachable.</p>}
+    {provider === "process" && <p className="text-xs text-[#815017]">Process mode has no sandbox. The agent works in a temporary repository copy, but the rest of the machine, network, and secrets remain reachable.</p>}
   </div>;
 
   return <div className="mx-auto max-w-4xl space-y-3">
@@ -304,7 +304,7 @@ export function NewRequestFlow() {
           {!accessGaps && <p className="mt-2 text-sm text-[#64717c]">Checking…</p>}
           {accessGaps && accessGaps.gaps.length === 0 && <p className="mt-2 text-sm text-[#64717c]">Everything the agent says it needs is already allowed. Nothing extra is granted.</p>}
           {accessGaps && accessGaps.gaps.length > 0 && <>
-            <p className="mt-2 text-xs text-[#64717c]">These come from the agent&apos;s own plan. Grant only what you agree with. Denied network access and keys are blocked; other attempts are recorded for review.</p>
+            <p className="mt-2 text-xs text-[#64717c]">These come from the agent&apos;s own plan. Grant only what you agree with. Denied network access and secrets are blocked; other attempts are recorded for review.</p>
             <ul className="mt-3 space-y-2">{accessGaps.gaps.map((gap) => <li key={`${gap.kind}:${gap.requested}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
               <span><span className="mono font-semibold">{gap.requested}</span> <span className="text-[#64717c]">— {gap.reason}</span> <span className={`status ${gap.enforcement === "blocked" ? "status-good" : gap.enforcement === "flagged" ? "status-warn" : "status-muted"}`}>{gap.enforcement === "blocked" ? "blocked if denied" : gap.enforcement === "flagged" ? "flagged if attempted" : "agent-reported only"}</span></span>
               <ActionButton variant="secondary" onClick={() => grant(gap)}>Grant</ActionButton>

@@ -28,11 +28,11 @@ export function AgentDetail({ agentId }: { agentId: string }) {
     </section>
 
     <section className="card overflow-hidden">
-      <div className="border-b p-5"><p className="eyebrow">Other capabilities</p><h2 className="mt-1 text-lg font-semibold">Keys, services, network, and tools</h2></div>
+      <div className="border-b p-5"><p className="eyebrow">Other capabilities</p><h2 className="mt-1 text-lg font-semibold">Secrets, services, network, and tools</h2></div>
       <div className="overflow-x-auto"><table className="w-full min-w-[760px] border-collapse text-left">
         <thead className="bg-[#f0f2f3] text-[11px] uppercase tracking-[.08em] text-[#64717c]"><tr><th className="px-5 py-3">Capability</th><th className="px-5 py-3">Granted access</th><th className="px-5 py-3">What it means</th></tr></thead>
         <tbody className="divide-y">
-          <CapabilityRow icon={KeyRound} label="Keys" items={permissions?.secrets ?? []} empty="No keys" explanation="Only these named environment variables are injected into the sandbox." />
+          <CapabilityRow icon={KeyRound} label="Secrets" items={permissions?.secrets ?? []} empty="No secrets" explanation="Only these named environment variables are injected into the sandbox." />
           <CapabilityRow icon={Plug} label="MCP servers" items={permissions ? mcpServerLabels(permissions, true) : []} empty="No MCP servers" explanation="These MCP servers are declared for the run; use is recorded from agent telemetry." />
           <CapabilityRow icon={Globe2} label="Network" items={permissions?.network ?? []} empty="No internet hosts allowed" explanation="Only these hosts are allowed through the network proxy when the runtime can enforce it." />
           <CapabilityRow icon={Terminal} label="Tools" items={permissions?.tools ?? []} empty="No tools declared" explanation="These tools are declared for the run; unlisted use is flagged when telemetry exposes it." />
