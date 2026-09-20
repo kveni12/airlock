@@ -7,6 +7,7 @@ import { approveIntent, approveReview, createPullRequestFromRun, createReview, g
 import type { AgentIntent, AlignmentSegment, Finding, HumanRequest, ObservedBehavior, ObservedItem, PermissionSnapshot, RequestAnalysis, ResultSummary, RunDetail as RunDetailModel, TimelineEntry } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { groupFindings, violatedResources } from "@/lib/findings";
+import { AmendmentsSection } from "./amendments";
 import { FindingGroups } from "./finding-groups";
 import { ActionButton, AlignmentBadge, Chips, Empty, ErrorBanner, KeyValue, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatDateTime, formatTime, verificationHelp } from "./ui";
 
@@ -68,6 +69,7 @@ export function RunDetail({ runId }: { runId: string }) {
       <RequestSection request={d.request} analysis={d.requestAnalysis} />
       <Arrow />
       <IntentSection intent={d.intent} onChanged={refreshAll} />
+      <AmendmentsSection runId={run.id} onChanged={refreshAll} />
       <Arrow />
       <PermissionsSection permissions={d.permissions} />
       <Arrow />

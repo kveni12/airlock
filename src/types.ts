@@ -85,6 +85,11 @@ export interface CreateRunRequest {
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
   projectId?: string;
+  /**
+   * Keep stdin open and allocate a TTY so a human can drive the agent's own CLI inside the
+   * sandbox (`periscope codex`); Docker only. The run ends when the CLI exits.
+   */
+  interactive?: boolean;
 }
 
 /** A repo plus the saved sandbox settings New request starts from when the project is opened. */
@@ -265,6 +270,7 @@ export interface RunRecord {
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
   projectId?: string;
+  interactive?: boolean;
   /** Branch/PR created from this run's reviewed diff after human approval. */
   pullRequest?: RunPullRequest;
 }
