@@ -22,6 +22,7 @@ import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
 import { listRepoDirectory } from "./repo/repoTree.js";
+import { listHostFolders, nativeFolderDialogAvailable, pickHostFolder } from "./repo/hostFolders.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -213,6 +214,25 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     const permissions = await store.getPermissions(id);
     if (!permissions) return reply.code(404).send({ error: "Run not found" });
     return permissions;
+  });
+
+  app.get("/api/host/folders", async (request, reply) => {
+    const { dir } = request.query as { dir?: string };
+    try {
+      return { ...(await listHostFolders(dir)), nativeDialog: nativeFolderDialogAvailable() };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/host/pick-folder", async (request, reply) => {
+    const body = (request.body ?? {}) as { startDir?: unknown };
+    try {
+      const folder = await pickHostFolder(typeof body.startDir === "string" ? body.startDir : undefined);
+      return { path: folder };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
   });
 
   app.get("/api/repo-tree", async (request, reply) => {
