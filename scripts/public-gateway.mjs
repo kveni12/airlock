@@ -64,6 +64,11 @@ function proxy(req, res, path, body) {
   const target = path.startsWith("/api/") ? BACKEND : FRONTEND;
   const headers = { ...req.headers, host: `${target.host}:${target.port}` };
   delete headers.authorization;
+  // The public hostname is only known once the tunnel is up, so the backend cannot list it in
+  // PERISCOPE_ALLOWED_ORIGINS. Same-origin browser requests (Origin host == Host, i.e. the UI served by
+  // this gateway) are presented to the backend under the frontend's default origin; anything cross-site
+  // keeps its real Origin and is rejected there.
+  if (target === BACKEND && sameOrigin(req)) headers.origin = `http://localhost:${FRONTEND.port}`;
   if (body) headers["content-length"] = String(body.length);
   const up = http.request({ ...target, method: req.method, path: req.url, headers }, (r) => {
     res.writeHead(r.statusCode ?? 502, r.headers);
@@ -71,6 +76,16 @@ function proxy(req, res, path, body) {
   });
   up.on("error", () => { res.writeHead(502); res.end("upstream unavailable"); });
   if (body) up.end(body); else req.pipe(up);
+}
+
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return false;
+  try {
+    return new URL(origin).host === (req.headers["x-forwarded-host"] ?? req.headers.host);
+  } catch {
+    return false;
+  }
 }
 
 function unauthorized(res) {

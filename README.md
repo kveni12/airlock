@@ -76,6 +76,7 @@ Passwords are at least 12 characters and stored as salted scrypt hashes. Session
 
 - `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
 - `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
+- `PERISCOPE_OPEN_SIGNUP=1`: show "Create an account" on the sign-in page; anyone reaching the instance can create an `operator` account (`POST /api/auth/register`). Off by default — only admins create users.
 
 ### Sign in with Google
 
