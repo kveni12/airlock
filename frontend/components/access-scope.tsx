@@ -126,7 +126,7 @@ function ExplorerRow({ entry, depth, scope, onChange, repoPath }: { entry: RepoT
 
   return <>
     <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f0f2f3] ${explicit ? "bg-[#f6f2ec]" : ""}`} style={{ paddingLeft: `${depth * 16 + 4}px` }}>
-      {entry.kind === "dir" ? <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#64717c]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button> : <span className="inline-block size-3.5" />}
+      {entry.kind === "dir" && <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#64717c]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button>}
       {entry.kind === "dir" ? <FolderOpen className="size-3.5 text-[#64717c]" /> : <FileCode2 className="size-3.5 text-[#98a4ad]" />}
       <span className="mono flex-1 truncate">{entry.name}</span>
       {explicit ? <span title="Set here"><Pencil className="size-3 text-[#64717c]" /></span> : <span className="text-[10px] text-[#98a4ad]" title={`Inherited from ${displayFolder(eff.from)}`}>inherits</span>}
