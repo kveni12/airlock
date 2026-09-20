@@ -125,7 +125,7 @@ function ExplorerRow({ entry, depth, scope, onChange, repoPath }: { entry: RepoT
   }, [open, children, entry, repoPath]);
 
   return <>
-    <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f0f2f3] ${explicit ? "bg-[#f6f2ec]" : ""}`} style={{ paddingLeft: `${depth * 16 + 4}px` }}>
+    <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f0f2f3] ${explicit ? "bg-[#f6f2ec]" : ""}`} style={{ paddingLeft: `${depth * 16 + 20}px` }}>
       {entry.kind === "dir" && <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#64717c]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button>}
       {entry.kind === "dir" ? <FolderOpen className="size-3.5 text-[#64717c]" /> : <FileCode2 className="size-3.5 text-[#98a4ad]" />}
       <span className="mono flex-1 truncate">{entry.name}</span>
