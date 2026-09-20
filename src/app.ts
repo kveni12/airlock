@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
+import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingClassification, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
 import { openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
@@ -589,7 +589,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
         severity: query.severity as EventSeverity | undefined,
         runId: query.runId,
         taskId: query.taskId,
-        source: query.source as FindingSource | undefined
+        source: query.source as FindingSource | undefined,
+        classification: query.classification as FindingClassification | undefined
       })
     };
   });
