@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "dev": "tsx watch src/server.ts",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:public": "node scripts/dev-public.mjs",

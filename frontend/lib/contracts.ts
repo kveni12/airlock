@@ -156,6 +156,21 @@ export interface RepoTreeListing {
   entries: RepoTreeEntry[];
 }
 
+export interface HostFolderEntry {
+  name: string;
+  path: string;
+  isGitRepo: boolean;
+}
+
+export interface HostFolderListing {
+  dir: string;
+  parent: string | null;
+  home: string;
+  isGitRepo: boolean;
+  entries: HostFolderEntry[];
+  nativeDialog: boolean;
+}
+
 export interface RuntimeStatus {
   docker: { available: boolean; image: string; imagePresent: boolean; detail?: string };
   lima: { available: boolean; baseVm: string; baseVmPresent: boolean; agentVms: Record<string, { vm: string; present: boolean }>; detail?: string };

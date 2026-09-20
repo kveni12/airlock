@@ -16,6 +16,7 @@ import type {
   ProjectInput,
   PublicUser,
   RepoTreeListing,
+  HostFolderListing,
   RuntimeSetupJob,
   RuntimeStatus,
   RequestAnalysis,
@@ -224,6 +225,14 @@ export function getIntent(id: string, signal?: AbortSignal) {
 
 export function getIntentAlignment(id: string, signal?: AbortSignal) {
   return request<IntentAlignmentResponse>(`/api/intents/${enc(id)}/alignment`, signal);
+}
+
+export function getHostFolders(dir?: string, signal?: AbortSignal) {
+  return request<HostFolderListing>(`/api/host/folders${dir ? `?dir=${enc(dir)}` : ""}`, signal);
+}
+
+export async function pickHostFolder(startDir?: string): Promise<string | null> {
+  return (await post<{ path: string | null }>("/api/host/pick-folder", { startDir })).path;
 }
 
 export function getRepoTree(repoPath: string, dir = "", signal?: AbortSignal) {

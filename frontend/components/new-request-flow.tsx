@@ -10,6 +10,7 @@ import { OPEN_PROJECT_KEY } from "./projects-list";
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, DEFAULT_SCOPE, scopeToPermissions, setFolderAccess, summarizeScope, type AccessScope } from "./access-scope";
 import { FindingCard } from "./finding-card";
+import { RepoPathField } from "./folder-picker";
 import { RuntimeStatusPanel } from "./runtime-status";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
@@ -207,12 +208,12 @@ export function NewRequestFlow() {
     <div className="grid gap-3 md:grid-cols-2">
       <label className="block text-sm"><span className={labelCls}>Agent</span>
         <select value={agentChoice} onChange={(e) => chooseAgent(e.target.value)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
-          <option value="script">Shell command (demo scripts / custom)</option>
+          <option value="script">Shell command (scripted demo builder / custom)</option>
           {(profiles.data ?? []).filter((p) => PICKABLE_KINDS.includes(p.kind)).map((p) => <option key={p.kind} value={p.kind}>{p.displayName}</option>)}
         </select>
         {profiles.error && <span className="mt-1 block text-xs text-[#9a3d31]">Could not load agent profiles: {profiles.error}</span>}
       </label>
-      <label className="block text-sm"><span className={labelCls}>Repo path (on the machine running the backend)</span><input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/Users/you/code/my-app" className={inputCls} /></label>
+      <div className="text-sm"><RepoPathField value={repoPath} onChange={setRepoPath} mono={false} /></div>
       <label className="block text-sm"><span className={labelCls}>Runtime provider</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
           <option value="process">process — no isolation, runs on this machine on a temp copy</option>
@@ -321,7 +322,9 @@ export function NewRequestFlow() {
       {!intent ? <p className="text-sm text-[#64717c]">Capture intent first — Periscope will not start a builder without a declared intent to compare against.</p> : <div className="space-y-3">
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder agent id</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          {usingRealAgent ? <p className="text-sm text-[#64717c] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
+          {usingRealAgent ? <p className="text-sm text-[#64717c] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" />
+            {builderCommand.includes("agentguard-intent-demo-builder") && !repoPath.includes("intent-demo-repo") ? <span className="mt-1 block text-xs text-[#9a3d31]">This scripted demo builder only works in <span className="mono">fixtures/intent-demo-repo</span> (it writes <span className="mono">src/auth/session.js</span>); pick a real agent above or change the command.</span> : null}
+          </label>}
         </div>
         <div className="rounded-xl border bg-[#f6f2ec] p-4">
           <p className="text-sm font-semibold">The run will start with exactly this access</p>

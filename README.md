@@ -16,9 +16,11 @@ This repository implements the backend workflow for:
 ## Quickstart (backend + UI)
 
 ```bash
-npm install
+npm run setup     # checks Node 22+ and Docker, installs deps, builds the sandbox image
 npm run dev:all
 ```
+
+(`npm install && npm run dev:all` also works if you would rather skip the checks.) Periscope runs on **your** machine: the **Open folder…** button on Projects and New request browses this computer's disk (with the native macOS folder dialog when available), so any local git checkout can be governed — the agent only ever sees the sandboxed copy of the folder you pick. The hosted/tunnel demo cannot reach your files; run it locally for that.
 
 Then open `http://localhost:3001`. The first time you do, the UI asks you to create an administrator account and paste the one-time setup token the backend printed to its log at startup (`Periscope has no operator account yet…`). Every later visit asks you to sign in; requests, intent decisions, dismissals and review approvals are recorded against that account rather than a caller-supplied name.
 
@@ -32,7 +34,7 @@ GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: p
 PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
 ```
 
-`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host repo browsing, shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
+`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host folder browsing (`/api/host/*`), shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
 
 ### Projects
 

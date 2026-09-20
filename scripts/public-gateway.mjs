@@ -22,6 +22,7 @@ const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const BLOCKED = [
   /^\/api\/runtime\//,
   /^\/api\/repos?(\/|$)/,
+  /^\/api\/host(\/|$)/,
   /^\/api\/request-rules(\/|$)/,
   /^\/api\/findings\/[^/]+\/resolve$/
 ];
