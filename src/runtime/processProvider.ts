@@ -15,6 +15,33 @@ export function baseHostEnvironment(source: NodeJS.ProcessEnv = process.env): Re
   return env;
 }
 
+export interface HostProcessCommand {
+  executable: string;
+  args: string[];
+}
+
+/** Translate the API's portable shell wrapper to the shell available on the backend host. */
+export function processCommandForHost(
+  command: string[],
+  platform: NodeJS.Platform = process.platform,
+  comspec = process.env.ComSpec
+): HostProcessCommand {
+  const [executable, ...args] = command;
+  if (!executable) throw new Error("Process command is empty");
+
+  if (platform === "win32" && (executable === "/bin/sh" || executable === "sh") && (args[0] === "-c" || args[0] === "-lc")) {
+    const commandText = args[1];
+    if (commandText === undefined) throw new Error(`${executable} ${args[0]} requires a command string`);
+    return { executable: comspec || "cmd.exe", args: ["/d", "/s", "/c", commandText] };
+  }
+
+  if (platform === "win32" && executable.toLowerCase().endsWith(".sh")) {
+    return { executable: "bash", args: [executable, ...args] };
+  }
+
+  return { executable, args };
+}
+
 interface ProcessHandle extends SandboxHandle {
   options: SandboxCreateOptions;
   child?: ChildProcess;
@@ -48,11 +75,8 @@ export class ProcessProvider implements SandboxProvider {
   async start(handle: SandboxHandle): Promise<void> {
     const proc = handle as ProcessHandle;
     const { run, workspacePath, proxyUrl, environment, onOutput } = proc.options;
-    const [command, ...args] = run.command;
-    const runsShellScriptOnWindows = process.platform === "win32" && command.toLowerCase().endsWith(".sh");
-    const executable = runsShellScriptOnWindows ? "bash" : command;
-    const executableArgs = runsShellScriptOnWindows ? [command, ...args] : args;
-    const child = spawn(executable, executableArgs, {
+    const command = processCommandForHost(run.command);
+    const child = spawn(command.executable, command.args, {
       cwd: workspacePath,
       env: {
         ...baseHostEnvironment(),

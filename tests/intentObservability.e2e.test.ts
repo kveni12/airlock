@@ -24,8 +24,8 @@ import type {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(repoRoot, "fixtures/intent-demo-repo");
-const planner = path.join(repoRoot, "runtime/intent-demo-planner.sh");
-const builder = path.join(repoRoot, "runtime/intent-demo-builder.sh");
+const planner = path.join(repoRoot, "runtime/intent-demo-planner.mjs");
+const builder = path.join(repoRoot, "runtime/intent-demo-builder.mjs");
 const runtime = { provider: "process" as const };
 
 const PROMPT =
@@ -77,7 +77,7 @@ describe("intent observability end-to-end (process runtime)", () => {
       agentId: "planner",
       requestId: request.id,
       repo: { path: fixture },
-      command: [planner],
+      command: [process.execPath, planner],
       runtime
     });
     expect(intent.planningRunId).toBeDefined();
@@ -92,7 +92,7 @@ describe("intent observability end-to-end (process runtime)", () => {
       taskId,
       agentId: "builder",
       repo: { path: fixture },
-      command: [builder],
+      command: [process.execPath, builder],
       permissions: { filesystem: [{ path: "/workspace", access: "read_write" }], tools: ["filesystem", "shell"] },
       runtime,
       intentId: intent.id,
@@ -112,7 +112,7 @@ describe("intent observability end-to-end (process runtime)", () => {
 
     const { findings } = await poll(
       () => api<{ findings: Finding[] }>(app, "GET", `/api/findings?runId=${runId}&source=intent_comparison`),
-      (r) => r.findings.length >= 3
+      (r) => r.findings.length >= 3 && r.findings.some((finding) => finding.type === "constraint_violation" && finding.evidence?.observedResource === "axios")
     );
     const infra = findings.find((f) => f.type === "spec_drift" && f.file === "infra/prod.tf");
     const dependency = findings.find((f) => f.type === "dependency" && f.evidence?.observedResource === "axios");

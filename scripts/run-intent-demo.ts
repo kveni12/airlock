@@ -39,8 +39,8 @@ const HUMAN_PROMPT = [
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const provider = (process.env.AGENTGUARD_RUNTIME_PROVIDER ?? "process") as "lima" | "docker" | "process";
-const plannerCommand = provider === "process" ? [path.join(repoRoot, "runtime/intent-demo-planner.sh")] : ["agentguard-intent-demo-planner"];
-const builderCommand = provider === "process" ? [path.join(repoRoot, "runtime/intent-demo-builder.sh")] : ["agentguard-intent-demo-builder"];
+const plannerCommand = provider === "process" ? [process.execPath, path.join(repoRoot, "runtime/intent-demo-planner.mjs")] : ["agentguard-intent-demo-planner"];
+const builderCommand = provider === "process" ? [process.execPath, path.join(repoRoot, "runtime/intent-demo-builder.mjs")] : ["agentguard-intent-demo-builder"];
 
 const DEMO_OPERATOR_EMAIL = "demo-operator@periscope.local";
 
