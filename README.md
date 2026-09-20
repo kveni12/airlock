@@ -36,6 +36,20 @@ PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions 
 
 `dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host folder browsing (`/api/host/*`; set `GATEWAY_ALLOW_HOST_BROWSE=1` to let signed-in visitors browse this machine's folders and run any local repo in Docker — the native dialog stays blocked), shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
 
+### Interactive permission demo
+
+For terminal-first coding with **immediate local edits**, use
+[`periscope codex`](docs/local-cli.md) from a saved project's directory. It opens
+Codex or Claude Code in your terminal with the real project mounted under its saved Docker
+permissions, while Periscope records activity in the background.
+
+To open a disposable local project, configure its permissions in the UI, and
+attach a native shell, Codex, or Claude Code CLI inside its Docker sandbox, follow
+[the permission demo guide](docs/permissions-demo.md). The helper supports
+`npm run demo:permissions -- --seed`, `--probe`, `--shell`, and `--codex`.
+The guide includes the Colima workspace/proxy settings and distinguishes tested
+enforcement from permissions that are currently only declared or observed.
+
 ### Projects
 
 **Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
