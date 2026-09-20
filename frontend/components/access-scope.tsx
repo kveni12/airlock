@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Eye, EyeOff, FileCode2, FolderOpen, Globe, K
 import { getRepoTree } from "@/lib/api";
 import type { PermissionSnapshot, RepoTreeEntry, RuntimeProviderKind } from "@/lib/contracts";
 
-export type FolderAccess = "read" | "read_write";
+export type FolderAccess = "none" | "read" | "read_write";
 export interface FolderGrant {
   path: string;
   access: FolderAccess;
@@ -45,7 +45,7 @@ export function setFolderAccess(scope: AccessScope, relPath: string, access: Fol
 
 export function scopeToPermissions(scope: AccessScope, mode: "planner" | "builder"): PermissionSnapshot {
   return {
-    filesystem: scope.folders.map((f) => ({ path: normalizeFolder(f.path), access: mode === "planner" ? "read" : f.access })),
+    filesystem: scope.folders.map((f) => ({ path: normalizeFolder(f.path), access: mode === "planner" && f.access === "read_write" ? "read" : f.access })),
     network: scope.hosts,
     secrets: scope.secrets,
     mcpServers: scope.mcpServers,
@@ -69,8 +69,8 @@ type Enforcement = { label: string; tone: "good" | "warn" | "neutral"; detail: s
 
 function folderEnforcement(provider: RuntimeProviderKind): Enforcement {
   if (provider === "process") return { tone: "warn", label: "not isolated", detail: "process runtime has no sandbox: the agent can read anything on this machine (it only sees the environment variables you grant). Writes outside the allowed folders are flagged in the workbench afterwards, not prevented." };
-  if (provider === "lima") return { tone: "good", label: "repo only", detail: "Only a temporary copy of this repo is mounted in the VM — the rest of your machine is not visible. Lima cannot layer per-folder mounts, so if any folder is 'can change' the whole copy is writable and writes outside those folders are flagged in the workbench afterwards. Reads inside the repo cannot be traced." };
-  return { tone: "good", label: "enforced", detail: "Only a temporary copy of this repo is mounted in the sandbox — the rest of your machine is not visible. The copy is mounted read-only and only the folders you mark 'can change' are mounted writable, so writes elsewhere fail inside the sandbox (and are recorded as prevented). Reads inside the repo cannot be traced." };
+  if (provider === "lima") return { tone: "warn", label: "partly enforced", detail: "Only a temporary copy of this repo is mounted in the VM. Lima cannot enforce per-folder visibility or write overlays, so No access and out-of-scope writes are checked and flagged after the run." };
+  return { tone: "good", label: "enforced", detail: "Docker mounts only paths marked Read only or Can change. Paths marked No access are omitted or masked, while allowed child folders remain visible even when their parent is hidden." };
 }
 
 const NETWORK_ENFORCEMENT: Enforcement = { tone: "good", label: "blocked", detail: "An empty list means no internet. Hosts not on the list are refused by the Periscope proxy (HTTP/HTTPS). In Docker the container has no route out except the proxy, so traffic that ignores the proxy is dropped; with the process runtime, direct sockets bypass the proxy and cannot be observed." };
@@ -100,10 +100,14 @@ function AddInput({ placeholder, onAdd }: { placeholder: string; onAdd: (value: 
 function AccessToggle({ value, onChange, inherited }: { value: FolderAccess; onChange: (access: FolderAccess) => void; inherited: boolean }) {
   const btn = (access: FolderAccess, label: string) => {
     const on = value === access;
-    const tone = access === "read_write" ? "bg-[#fbe9c8] text-[#815017] border-[#e6c98f]" : "bg-[#e5efe9] text-[#14623f] border-[#b9d3c4]";
+    const tone = access === "read_write"
+      ? "bg-[#fbe9c8] text-[#815017] border-[#e6c98f]"
+      : access === "read"
+        ? "bg-[#e5efe9] text-[#14623f] border-[#b9d3c4]"
+        : "bg-[#f0f2f3] text-[#58656f] border-[#cbd2d7]";
     return <button type="button" onClick={() => onChange(access)} aria-pressed={on} className={`px-2 py-0.5 text-[11px] font-semibold ${on ? `${tone} ${inherited ? "opacity-70" : ""}` : "bg-white text-[#98a4ad] hover:text-[#14212a]"}`}>{label}</button>;
   };
-  return <span className="inline-flex overflow-hidden rounded-md border text-xs">{btn("read", "read only")}{btn("read_write", "can change")}</span>;
+  return <span className="inline-flex overflow-hidden rounded-md border text-xs">{btn("none", "no access")}{btn("read", "read only")}{btn("read_write", "can change")}</span>;
 }
 
 function ExplorerRow({ entry, depth, scope, onChange, repoPath }: { entry: RepoTreeEntry; depth: number; scope: AccessScope; onChange: (scope: AccessScope) => void; repoPath: string }) {
@@ -121,8 +125,8 @@ function ExplorerRow({ entry, depth, scope, onChange, repoPath }: { entry: RepoT
   }, [open, children, entry, repoPath]);
 
   return <>
-    <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f0f2f3] ${explicit ? "bg-[#f6f2ec]" : ""}`} style={{ paddingLeft: `${depth * 16 + 4}px` }}>
-      {entry.kind === "dir" ? <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#64717c]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button> : <span className="inline-block size-3.5" />}
+    <li className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-[#f0f2f3] ${explicit ? "bg-[#f6f2ec]" : ""}`} style={{ paddingLeft: `${depth * 16 + 20}px` }}>
+      {entry.kind === "dir" && <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Collapse" : "Expand"} className="text-[#64717c]">{open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</button>}
       {entry.kind === "dir" ? <FolderOpen className="size-3.5 text-[#64717c]" /> : <FileCode2 className="size-3.5 text-[#98a4ad]" />}
       <span className="mono flex-1 truncate">{entry.name}</span>
       {explicit ? <span title="Set here"><Pencil className="size-3 text-[#64717c]" /></span> : <span className="text-[10px] text-[#98a4ad]" title={`Inherited from ${displayFolder(eff.from)}`}>inherits</span>}
@@ -135,7 +139,7 @@ function ExplorerRow({ entry, depth, scope, onChange, repoPath }: { entry: RepoT
   </>;
 }
 
-/** File-explorer view of the repo: click "read only" / "can change" on any folder or file; children inherit from the closest parent that was set. */
+/** File-explorer view of the repo: choose no access, read only, or can change; children inherit from the closest explicit rule. */
 export function FolderExplorer({ repoPath, scope, onChange }: { repoPath: string; scope: AccessScope; onChange: (scope: AccessScope) => void }) {
   const [entries, setEntries] = useState<RepoTreeEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -159,19 +163,26 @@ export function FolderExplorer({ repoPath, scope, onChange }: { repoPath: string
       {!error && entries === null && <li className="px-2 py-1 text-xs text-[#98a4ad]">Loading…</li>}
       {entries?.map((e) => <ExplorerRow key={e.path} entry={e} depth={1} scope={scope} onChange={onChange} repoPath={repoPath} />)}
     </ul>
-    {overrides.length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-t px-2 py-1.5 text-xs text-[#64717c]"><Pencil className="size-3" />Set here:{overrides.map((g) => <span key={g.path} className={`mono rounded px-1.5 py-0.5 ${g.access === "read_write" ? "bg-[#fbe9c8] text-[#815017]" : "bg-[#e5efe9] text-[#14623f]"}`}>{displayFolder(g.path)} · {g.access === "read_write" ? "can change" : "read only"}</span>)}</div>}
+    {overrides.length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-t px-2 py-1.5 text-xs text-[#64717c]"><Pencil className="size-3" />Set here:{overrides.map((g) => <span key={g.path} className={`mono rounded px-1.5 py-0.5 ${g.access === "read_write" ? "bg-[#fbe9c8] text-[#815017]" : g.access === "read" ? "bg-[#e5efe9] text-[#14623f]" : "bg-[#f0f2f3] text-[#58656f]"}`}>{displayFolder(g.path)} · {g.access === "read_write" ? "can change" : g.access === "read" ? "read only" : "no access"}</span>)}</div>}
   </div>;
 }
 
 export function summarizeScope(scope: AccessScope, provider: RuntimeProviderKind): string[] {
   const rw = scope.folders.filter((f) => f.access === "read_write").map((f) => displayFolder(f.path));
   const ro = scope.folders.filter((f) => f.access === "read").map((f) => displayFolder(f.path));
+  const hidden = scope.folders.filter((f) => f.access === "none").map((f) => displayFolder(f.path));
   const out: string[] = [];
-  out.push(provider === "process" ? "Can see: this machine (process runtime is not isolated)." : "Can see: a temporary copy of this repo, nothing else on your machine.");
+  const rootAccess = effectiveAccess(scope, "/workspace").access;
+  out.push(provider === "process"
+    ? "Can see: this machine (process runtime is not isolated)."
+    : rootAccess === "none"
+      ? "Can see: only the read-only or editable folders selected below."
+      : "Can see: a temporary copy of this repo, except folders marked no access.");
   out.push(rw.length ? `Can change: ${rw.join(", ")}.` : "Can change: nothing (read-only run).");
   if (ro.length) out.push(`Read only: ${ro.join(", ")}.`);
+  if (hidden.length) out.push(`No access: ${hidden.join(", ")}.`);
   out.push(scope.hosts.length ? `Internet: only ${scope.hosts.join(", ")}.` : "Internet: off.");
-  out.push(scope.secrets.length ? `Secrets: ${scope.secrets.join(", ")}.` : "Secrets: none.");
+  out.push(scope.secrets.length ? `Keys: ${scope.secrets.join(", ")}.` : "Keys: none.");
   out.push(scope.mcpServers.length ? `MCP servers: ${scope.mcpServers.join(", ")}.` : "MCP servers: none.");
   out.push("If the plan needs more than this, Periscope will ask you before the run starts.");
   return out;
@@ -195,10 +206,11 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly, repo
 
     <div className={block}>
       <div className={head}><p className={title}><Eye className="size-4" />Folders</p><EnforcementTag e={folderE} /></div>
-      <p className="mt-1 text-xs text-[#64717c]">{folderE.detail} Everything starts <strong>read only</strong>; mark the folders the agent may change. Sub-folders inherit from the nearest parent you set.</p>
+      <p className="mt-1 text-xs text-[#64717c]">{folderE.detail} Choose <strong>no access</strong>, <strong>read only</strong>, or <strong>can change</strong>. Subfolders inherit from the nearest parent, and a child selection overrides its parent.</p>
       <FolderExplorer repoPath={repoPath} scope={scope} onChange={onChange} />
       <AddInput placeholder="or type a folder to allow changes, e.g. src/auth" onAdd={addFolder} />
-      {effectiveAccess(scope, "/workspace").access === "read_write" && <p className="mt-1 text-xs text-[#815017]"><EyeOff className="mr-1 inline size-3" />The whole repo is set to &quot;can change&quot; — that is the widest folder scope. Set it to read only and pick specific folders to actually narrow it.</p>}
+      {effectiveAccess(scope, "/workspace").access === "read_write" && <p className="mt-1 text-xs text-[#815017]"><EyeOff className="mr-1 inline size-3" />The whole repo is set to &quot;can change&quot; - that is the widest folder scope. Set it to read only or no access and choose narrower folders to reduce access.</p>}
+      {effectiveAccess(scope, "/workspace").access === "none" && <p className="mt-1 text-xs text-[#64717c]"><EyeOff className="mr-1 inline size-3" />The repo is hidden by default. Any child marked read only or can change becomes a visible exception; other folders stay hidden.</p>}
     </div>
 
     <div className="grid gap-3 md:grid-cols-2">
@@ -209,9 +221,9 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly, repo
         <AddInput placeholder="registry.npmjs.org" onAdd={addUnique("hosts")} />
       </div>
       <div className={block}>
-        <div className={head}><p className={title}><KeyRound className="size-4" />Secrets</p><EnforcementTag e={SECRET_ENFORCEMENT} /></div>
+        <div className={head}><p className={title}><KeyRound className="size-4" />Keys</p><EnforcementTag e={SECRET_ENFORCEMENT} /></div>
         <p className="mt-1 text-xs text-[#64717c]">Env var names read from the backend process; values are never stored or shown.</p>
-        <div className="mt-2"><TagList items={scope.secrets} onRemove={remove("secrets")} empty="No secrets injected." /></div>
+        <div className="mt-2"><TagList items={scope.secrets} onRemove={remove("secrets")} empty="No keys provided." /></div>
         <AddInput placeholder="ANTHROPIC_API_KEY" onAdd={addUnique("secrets")} />
       </div>
       <div className={block}>

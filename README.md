@@ -34,13 +34,25 @@ GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: p
 PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
 ```
 
-`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host folder browsing (`/api/host/*`), shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
+`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host folder browsing (`/api/host/*`; set `GATEWAY_ALLOW_HOST_BROWSE=1` to let signed-in visitors browse this machine's folders and run any local repo in Docker — the native dialog stays blocked), shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
 
 ### Projects
 
 **Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
 
 `npm run demo:projects` seeds three sample projects over the bundled `fixtures/*` repos (idempotent; `AGENTGUARD_RUNTIME_PROVIDER` picks the runtime, default `docker`).
+
+### Use `codex` / `claude` from your terminal, restricted by the project
+
+You do not have to launch agents from the web UI. With the backend running, `cd` into a repo that has a saved Project and start the agent's **own** interactive CLI inside the sandbox:
+
+```bash
+npm link                     # once: puts `periscope` on PATH (or use `npm run cli -- …`)
+cd ~/code/my-app
+periscope codex              # or: periscope claude | opencode | cursor | run -- <any command>
+```
+
+`periscope` looks up the Project whose repo path matches the current folder (`--project <name>` to pick one explicitly), prints its scope, creates an **interactive** Docker run with exactly that scope — repo copy mounted read-only with only the "can change" folders writable, egress denied except the project's allowed hosts via the proxy, only the project's named secrets injected — and attaches your terminal to the container (`docker attach`), so you use `codex`/`claude` exactly as you would locally. Nothing is reinvented: Periscope only records the session as a run (transcript, `write_prevented`/`blocked` events, git diff, findings, review) that you can open in the workbench. When you exit the CLI the run completes and the CLI prints what changed; your checkout is never mounted, so you apply the reviewed diff from the workbench. No Project for the folder → the CLI refuses to start and points you at **Projects → New** to define a scope first. Backends with login enabled: `periscope login` once (session stored in `~/.config/periscope/session.json`); `--api`/`PERISCOPE_API` selects the backend (default `http://localhost:3000`). Interactive runs are Docker-only. Ctrl-C goes to the agent inside the sandbox (as it would locally); closing the terminal or killing `periscope` (SIGHUP/SIGTERM) stops the run so nothing keeps running unattended, and if the backend disappears mid-session the CLI tells you which container to `docker stop`.
 
 ### Run a real agent on your own repository
 
@@ -458,6 +470,19 @@ git.diff_generated
 process.exit
 runtime.completed
 ```
+
+### Run Manifest and PR from an approved run
+
+Every run has a read-only **Run Manifest** — one document covering the whole chain: human request (with extracted constraints), declared intent and any mid-run amendments, permissions granted (and which secrets were actually injected), independently observed behavior (files changed, writes the sandbox prevented, commands, tests, allowed/blocked network), alignment verdicts, findings by drift class, and the human decision.
+
+```bash
+curl -b cookie.txt http://localhost:3000/api/runs/<runId>/manifest                 # JSON
+curl -b cookie.txt "http://localhost:3000/api/runs/<runId>/manifest?format=markdown"
+```
+
+In the UI: run page → **Run manifest**. It is derived from the stored request/intent/events/findings/review each time, never edited.
+
+Once a human has **approved the review**, the run page offers **Create PR branch** (`POST /api/runs/<runId>/pull-request` with optional `branch`, `push`, `remote`, `title`). Periscope applies exactly the diff it recorded and reviewed — not the live sandbox, not your working tree — in a temporary worktree of the source repository, commits it on a new branch with the manifest as the commit body, and (with `push: true`) pushes and returns a compare URL. Runs that are unreviewed, pending, rejected or failed are refused with `409`. The endpoint is blocked on the public gateway because it writes to a repository on the host.
 
 ## Watch Events
 

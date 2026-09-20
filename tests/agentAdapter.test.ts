@@ -195,3 +195,19 @@ describe("resolveAgent", () => {
     ).toThrow("agent.prompt is required");
   });
 });
+
+describe("resolveAgent (interactive)", () => {
+  const base: CreateRunRequest = { taskId: "t", agentId: "a", repo: { path: "." }, interactive: true };
+
+  it("starts the agent's own interactive CLI without a prompt", () => {
+    expect(resolveAgent({ ...base, agent: { kind: "claude_code" } }).command).toEqual(["claude"]);
+    expect(resolveAgent({ ...base, agent: { kind: "opencode", args: ["--model", "x"] } }).command).toEqual(["opencode", "--model", "x"]);
+    const codex = resolveAgent({ ...base, agent: { kind: "codex" } }).command;
+    expect(codex.slice(0, 2)).toEqual(["sh", "-c"]);
+    expect(codex.slice(3)).toEqual(["codex"]); // no `exec`/`--json`/prompt: the plain interactive CLI
+  });
+
+  it("refuses kinds that have no interactive CLI", () => {
+    expect(() => resolveAgent({ ...base, agent: { kind: "devin" } })).toThrow(/interactive CLI/);
+  });
+});

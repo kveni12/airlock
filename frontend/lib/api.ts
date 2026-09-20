@@ -26,6 +26,8 @@ import type {
   RunDetail,
   RunFilesResponse,
   RunRecord,
+  IntentAmendment,
+  RunPullRequest,
   TimelineEntry
 } from "./contracts";
 
@@ -64,6 +66,17 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function requestText(path: string, signal?: AbortSignal): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store", credentials: "include", signal });
+  } catch {
+    throw new AgentGuardApiError(`Periscope backend is unavailable at ${API_BASE_URL}.`);
+  }
+  if (!response.ok) throw new AgentGuardApiError(`Backend request failed: ${response.status} ${response.statusText}`, response.status);
+  return response.text();
 }
 
 function post<T>(path: string, body: unknown = {}) {
@@ -149,6 +162,18 @@ export function getFiles(runId: string, signal?: AbortSignal) {
 
 export function getRunDetail(runId: string, signal?: AbortSignal) {
   return request<RunDetail>(`/api/runs/${enc(runId)}/detail`, signal);
+}
+
+export function getRunManifestMarkdown(runId: string, signal?: AbortSignal): Promise<string> {
+  return requestText(`/api/runs/${enc(runId)}/manifest?format=markdown`, signal);
+}
+
+export function manifestDownloadUrl(runId: string) {
+  return `${API_BASE_URL}/api/runs/${enc(runId)}/manifest?format=markdown`;
+}
+
+export function createPullRequestFromRun(runId: string, body: { branch?: string; push?: boolean; remote?: string; title?: string } = {}) {
+  return post<RunPullRequest>(`/api/runs/${enc(runId)}/pull-request`, body);
 }
 
 export async function getTimeline(runId: string, signal?: AbortSignal): Promise<TimelineEntry[]> {
@@ -318,6 +343,30 @@ export function rejectReview(id: string, body: { actor?: string; reason?: string
 
 // ---- composed ----
 
+export async function loadAgentCapabilities(signal?: AbortSignal) {
+  const runs = await listRuns(signal);
+  const latestRuns = [...new Map(
+    runs.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((run) => [run.agentId, run])
+  ).values()];
+  const details = await Promise.all(latestRuns.map(async (run) => {
+    const [permissions, events] = await Promise.all([
+      getPermissions(run.id, signal),
+      getEvents(run.id, signal)
+    ]);
+    return { runId: run.id, permissions, events };
+  }));
+  return {
+    runs: latestRuns,
+    permissionsByRun: Object.fromEntries(details.map((item) => [item.runId, item.permissions])),
+    eventsByRun: Object.fromEntries(details.map((item) => [item.runId, item.events]))
+  };
+}
+
+export async function loadAgentCapability(agentId: string, signal?: AbortSignal) {
+  const runs = await listRuns(signal);
+  const run = runs.filter((item) => item.agentId === agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  return { run, permissions: run ? await getPermissions(run.id, signal) : null };
+}
 export async function loadDashboardSnapshot(signal?: AbortSignal): Promise<DashboardSnapshot> {
   const runs = await listRuns(signal);
   const details = await Promise.all(runs.map(async (run) => {
@@ -343,4 +392,18 @@ export function subscribeToRun(runId: string, onEvent: (event: AgentEvent) => vo
   for (const eventName of eventNames) source.addEventListener(eventName, (message) => onEvent(JSON.parse((message as MessageEvent).data) as AgentEvent));
   source.onerror = () => onError?.();
   return () => source.close();
+}
+
+// ---- intent amendments ----
+
+export async function listRunAmendments(runId: string, signal?: AbortSignal): Promise<IntentAmendment[]> {
+  return (await request<{ amendments: IntentAmendment[] }>(`/api/runs/${enc(runId)}/intent-amendments`, signal)).amendments;
+}
+
+export function approveAmendment(id: string, body: { actor?: string; reason?: string } = {}) {
+  return post<IntentAmendment>(`/api/intent-amendments/${enc(id)}/approve`, body);
+}
+
+export function denyAmendment(id: string, body: { actor?: string; reason?: string } = {}) {
+  return post<IntentAmendment>(`/api/intent-amendments/${enc(id)}/deny`, body);
 }

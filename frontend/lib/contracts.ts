@@ -30,7 +30,7 @@ export interface MCPServer {
 }
 
 export interface PermissionSnapshot {
-  filesystem?: Array<{ path: string; access: "read" | "read_write" }>;
+  filesystem?: Array<{ path: string; access: "none" | "read" | "read_write" }>;
   network?: string[];
   secrets?: string[];
   mcpServers?: Array<string | MCPServer>;
@@ -79,10 +79,23 @@ export interface RunRecord {
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
   projectId?: string;
+  pullRequest?: RunPullRequest;
+}
+
+export interface RunPullRequest {
+  branch: string;
+  commit: string;
+  baseHead?: string | null;
+  pushed: boolean;
+  remote?: string;
+  url?: string;
+  compareUrl?: string;
+  createdAt: string;
+  createdBy?: string;
 }
 
 export interface ProjectScope {
-  folders: Array<{ path: string; access: "read" | "read_write" }>;
+  folders: Array<{ path: string; access: "none" | "read" | "read_write" }>;
   hosts: string[];
   secrets: string[];
   mcpServers: string[];
@@ -530,4 +543,41 @@ export interface GenerateIntentBody {
   runtime?: { provider: RuntimeProviderKind };
   timeoutMs?: number;
   structuredOutput?: unknown;
+}
+
+export type IntentAmendmentStatus = "pending" | "approved" | "denied";
+
+export interface IntentAmendmentChanges {
+  plannedActions?: string[];
+  expectedFiles?: string[];
+  expectedDependencies?: string[];
+  expectedCommands?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedTools?: string[];
+  expectedSecrets?: string[];
+}
+
+/** A mid-run request from the agent to change its plan and/or gain extra access; the run pauses until decided. */
+export interface IntentAmendment {
+  id: string;
+  runId: string;
+  taskId: string;
+  agentId: string;
+  intentId?: string;
+  resultingIntentId?: string;
+  requestId?: string;
+  reason: string;
+  changes: IntentAmendmentChanges;
+  permissions: PermissionSnapshot;
+  status: IntentAmendmentStatus;
+  channel: "control_channel" | "agent_output";
+  decision?: {
+    actor?: string;
+    reason?: string;
+    at: string;
+    appliedLive: Array<keyof PermissionSnapshot>;
+    deferred: Array<keyof PermissionSnapshot>;
+  };
+  createdAt: string;
 }

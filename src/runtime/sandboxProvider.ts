@@ -25,10 +25,16 @@ export interface SandboxHandle {
 }
 
 export interface WorkspaceMounts {
-  /** Whether the workspace root is mounted read-only or read-write. */
-  root: "ro" | "rw";
-  /** Relative paths (within the workspace) overlaid read-write when root is "ro". */
+  /** The access applied to the workspace root. "none" leaves the image's empty /workspace in place. */
+  root: "none" | "ro" | "rw";
+  /** Relative host paths mounted read-only as visible exceptions or overrides. */
+  readonly: string[];
+  /** Relative host paths mounted read-write as visible exceptions or overrides. */
   writable: string[];
+  /** Existing file paths hidden from the container. */
+  maskedFiles: string[];
+  /** Existing directory paths hidden from the container. */
+  maskedDirectories: string[];
 }
 
 export interface SandboxProvider {
@@ -54,28 +60,66 @@ export interface SandboxProvider {
 }
 
 /**
- * Turn the run's filesystem permissions into a mount plan. Planner runs are fully read-only.
- * A builder is read-write on the whole workspace only when the root itself is granted
- * read_write (or no filesystem scope was declared); otherwise the root is read-only and
- * each read_write grant becomes a writable overlay. Missing grant paths are created so the
- * agent can add files there.
+ * Turn hierarchical filesystem permissions into a provider-neutral mount plan.
+ * The most specific rule wins. Planner runs keep the same visibility but downgrade
+ * every writable rule to read-only.
  */
 export async function planWorkspaceMounts(run: RunRecord, workspacePath: string, permissions: PermissionSnapshot): Promise<WorkspaceMounts> {
-  if (run.workspaceAccess === "read_only") return { root: "ro", writable: [] };
-  const grants = permissions.filesystem ?? [];
-  if (!grants.length) return { root: "rw", writable: [] };
-  const writable = grants.filter((grant) => grant.access === "read_write").map((grant) => relativeGrantPath(grant.path));
-  if (writable.some((relative) => relative === "")) return { root: "rw", writable: [] };
-  const unique = [...new Set(writable)].sort();
-  // Drop grants nested inside another writable grant; the parent mount already covers them.
-  const overlays = unique.filter((relative) => !unique.some((other) => other !== relative && relative.startsWith(`${other}/`)));
-  for (const relative of overlays) {
-    const absolute = path.join(workspacePath, relative);
-    if (!absolute.startsWith(workspacePath + path.sep)) throw new Error(`Filesystem grant escapes the workspace: ${relative}`);
-    const exists = await stat(absolute).then(() => true, () => false);
-    if (!exists) await mkdir(absolute, { recursive: true });
+  const empty = { readonly: [] as string[], writable: [] as string[], maskedFiles: [] as string[], maskedDirectories: [] as string[] };
+  const declared = permissions.filesystem ?? [];
+  if (!declared.length) return { root: run.workspaceAccess === "read_only" ? "ro" : "rw", ...empty };
+
+  const downgrade = (access: "none" | "read" | "read_write") =>
+    run.workspaceAccess === "read_only" && access === "read_write" ? "read" : access;
+  const byPath = new Map<string, "none" | "read" | "read_write">();
+  for (const grant of declared) byPath.set(relativeGrantPath(grant.path), downgrade(grant.access));
+
+  const rootAccess = byPath.get("") ?? "read";
+  const root = rootAccess === "none" ? "none" : rootAccess === "read" ? "ro" : "rw";
+  const rules = [...byPath.entries()]
+    .filter(([relative]) => relative !== "")
+    .sort(([left], [right]) => left.length - right.length);
+
+  const resolved: Array<{ relative: string; access: "none" | "read" | "read_write" }> = [];
+  const readonly: string[] = [];
+  const writable: string[] = [];
+  const maskedFiles: string[] = [];
+  const maskedDirectories: string[] = [];
+
+  for (const [relative, access] of rules) {
+    const absolute = path.resolve(workspacePath, ...relative.split("/"));
+    const workspaceRoot = path.resolve(workspacePath);
+    if (absolute !== workspaceRoot && !absolute.startsWith(workspaceRoot + path.sep)) {
+      throw new Error(`Filesystem grant escapes the workspace: ${relative}`);
+    }
+
+    let inherited = rootAccess;
+    let inheritedLength = -1;
+    for (const rule of resolved) {
+      if ((relative === rule.relative || relative.startsWith(`${rule.relative}/`)) && rule.relative.length > inheritedLength) {
+        inherited = rule.access;
+        inheritedLength = rule.relative.length;
+      }
+    }
+    resolved.push({ relative, access });
+    if (access === inherited) continue;
+
+    const info = await stat(absolute).catch(() => undefined);
+    if (access === "none") {
+      if (inherited === "none" || !info) continue;
+      if (info.isDirectory()) maskedDirectories.push(relative);
+      else maskedFiles.push(relative);
+      continue;
+    }
+
+    if (!info) {
+      if (access === "read_write") await mkdir(absolute, { recursive: true });
+      else continue;
+    }
+    (access === "read_write" ? writable : readonly).push(relative);
   }
-  return { root: "ro", writable: overlays };
+
+  return { root, readonly: readonly.sort(), writable: writable.sort(), maskedFiles: maskedFiles.sort(), maskedDirectories: maskedDirectories.sort() };
 }
 
 /**

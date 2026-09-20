@@ -83,4 +83,17 @@ describe("PolicyEngine read-only scope", () => {
     const allowed = await engine.evaluate({ ...base, resource: "/workspace/src/app.js" });
     expect(allowed.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
   });
+
+  it("lets an allowed child override a no-access repository root", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "none" }, { path: "/workspace/src/auth", access: "read_write" }] }
+    }));
+    const base = { id: "e", runId: "r", taskId: "t", agentId: "a", timestamp: new Date().toISOString(), category: "filesystem" as const };
+    const hiddenWrite = await engine.evaluate({ ...base, action: "write", resource: "/workspace/src/app.js" });
+    expect(hiddenWrite.map((event) => event.metadata?.rule)).toContain("permission_scope");
+    const allowedWrite = await engine.evaluate({ ...base, action: "write", resource: "/workspace/src/auth/session.js" });
+    expect(allowedWrite.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
+    const hiddenRead = await engine.evaluate({ ...base, action: "read", resource: "/workspace/package.json" });
+    expect(hiddenRead.map((event) => event.metadata?.rule)).toContain("permission_scope");
+  });
 });

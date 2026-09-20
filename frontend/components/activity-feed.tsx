@@ -54,12 +54,12 @@ export function ActivityFeed() {
     </div>
     {error && <div className="mb-5"><ConnectionError message={error} onRetry={refresh} /></div>}
     <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
-      {filters.map((item) => <button key={item} onClick={() => setFilter(item)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold capitalize ${filter === item ? "border-[#182a33] bg-[#182a33] text-white" : "bg-white text-[#64717c]"}`}>{item}</button>)}
+      {filters.map((item) => <button key={item} onClick={() => setFilter(item)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold capitalize ${filter === item ? "border-[#182a33] bg-[#182a33] text-white" : "bg-white text-[#64717c]"}`}>{item === "secret" ? "Keys" : item}</button>)}
     </div>
     <div className="card overflow-hidden">
       {events.length === 0 ? <p className="p-8 text-center text-sm text-[#64717c]">No events match this filter.</p> : events.map((event) => <article key={event.id} className="grid gap-3 border-b p-4 last:border-b-0 sm:grid-cols-[36px_minmax(0,1fr)_auto] sm:items-center">
         <span className={`grid size-9 place-items-center rounded-lg ${event.category === "policy" || event.allowed === false ? "bg-[#fff2df] text-[#8c5112]" : "bg-[#eceff1] text-[#276142]"}`}><EventIcon category={event.category} /></span>
-        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{event.agentId}</span><span className="status">{event.category}.{event.action}</span>{event.allowed === false && <span className="status status-warn">Blocked</span>}</div><p className="mono mt-1 truncate text-xs text-[#64717c]">{event.resource ?? event.taskId}</p></div>
+        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{event.agentId}</span><span className="status">{event.category === "secret" ? "key" : event.category}.{event.action}</span>{event.allowed === false && <span className="status status-warn">Blocked</span>}</div><p className="mono mt-1 truncate text-xs text-[#64717c]">{event.resource ?? event.taskId}</p></div>
         <div className="text-left sm:text-right"><p className="text-xs text-[#64717c]">{new Date(event.timestamp).toLocaleString()}</p><p className="mt-1 text-xs font-semibold capitalize text-[#2c553e]">{statusLabel(event.severity ?? "info")}</p></div>
       </article>)}
     </div>

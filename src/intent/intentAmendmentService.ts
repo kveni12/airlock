@@ -106,8 +106,15 @@ export class IntentAmendmentService {
       channel,
       createdAt: new Date().toISOString()
     };
-    await this.store.createIntentAmendment(amendment);
+    // Publish a pending amendment only after the run is visibly paused. Otherwise a
+    // reviewer can observe the request while the run still appears to be executing.
     if (run.status === "running") await this.store.updateRun(run.id, { status: "paused" });
+    try {
+      await this.store.createIntentAmendment(amendment);
+    } catch (error) {
+      if (run.status === "running") await this.store.updateRun(run.id, { status: "running" });
+      throw error;
+    }
 
     await this.events.emitEvent({
       runId: run.id,

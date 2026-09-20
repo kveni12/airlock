@@ -14,6 +14,7 @@ interface DockerHandle extends SandboxHandle {
   onOutput?: SandboxCreateOptions["onOutput"];
   stdoutDecoder?: LineDecoder;
   stderrDecoder?: LineDecoder;
+  tty?: boolean;
 }
 
 export interface DockerProviderOptions {
@@ -105,12 +106,15 @@ export class DockerProvider implements SandboxProvider {
       name,
       Cmd: run.command,
       Labels: { [RUN_LABEL]: run.id },
+      ...(run.interactive ? { Tty: true, OpenStdin: true, StdinOnce: false, AttachStdin: true } : {}),
       User: user,
       WorkingDir: "/workspace",
       Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
       HostConfig: {
         AutoRemove: false,
         Binds: binds,
+        Tmpfs: Object.fromEntries(mounts.maskedDirectories.map((relative) => [path.posix.join("/workspace", relative), "ro,nosuid,nodev,noexec,size=64k"])),
+        MaskedPaths: mounts.maskedFiles.map((relative) => path.posix.join("/workspace", relative)),
         Memory: this.options.memoryBytes ?? 512 * 1024 * 1024,
         CpuShares: this.options.cpuShares ?? 512,
         PidsLimit: this.options.pidsLimit ?? 256,
@@ -121,7 +125,7 @@ export class DockerProvider implements SandboxProvider {
         ReadonlyRootfs: false
       }
     });
-    return { id: container.id, name, container, networkName: network?.name, onOutput: options.onOutput };
+    return { id: container.id, name, container, networkName: network?.name, onOutput: options.onOutput, tty: Boolean(run.interactive) };
   }
 
   async start(handle: SandboxHandle): Promise<void> {
@@ -133,7 +137,9 @@ export class DockerProvider implements SandboxProvider {
     docker.stderrDecoder = new LineDecoder("stderr", (line) => docker.onOutput?.(line));
     stdout.on("data", (chunk: Buffer) => docker.stdoutDecoder?.write(chunk));
     stderr.on("data", (chunk: Buffer) => docker.stderrDecoder?.write(chunk));
-    docker.container.modem.demuxStream(output, stdout, stderr);
+    // A TTY container has one multiplexed stream (no stdout/stderr framing).
+    if (docker.tty) output.on("data", (chunk: Buffer) => stdout.write(chunk));
+    else docker.container.modem.demuxStream(output, stdout, stderr);
     await docker.container.start();
   }
 
@@ -172,11 +178,18 @@ function asDockerHandle(handle: SandboxHandle): DockerHandle {
   return handle as DockerHandle;
 }
 
-/** Root bind read-only with each read_write grant layered on top as a writable bind of the same path. */
+/** Bind only visible paths. Nested binds let a child override its parent's access. */
 export function dockerBinds(workspacePath: string, mounts: WorkspaceMounts): string[] {
-  const binds = [`${workspacePath}:/workspace${mounts.root === "ro" ? ":ro" : ""}`];
-  if (mounts.root === "ro") {
-    for (const relative of mounts.writable) binds.push(`${path.join(workspacePath, relative)}:${path.posix.join("/workspace", relative)}`);
+  const binds: string[] = [];
+  if (mounts.root !== "none") binds.push(`${workspacePath}:/workspace${mounts.root === "ro" ? ":ro" : ""}`);
+  const hostPath = (relative: string) => /^[A-Za-z]:[\\/]/.test(workspacePath)
+    ? path.win32.join(workspacePath, relative)
+    : path.posix.join(workspacePath.replace(/\\/g, "/"), relative);
+  for (const relative of mounts.readonly) {
+    binds.push(`${hostPath(relative)}:${path.posix.join("/workspace", relative)}:ro`);
+  }
+  for (const relative of mounts.writable) {
+    binds.push(`${hostPath(relative)}:${path.posix.join("/workspace", relative)}`);
   }
   return binds;
 }

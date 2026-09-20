@@ -17,14 +17,18 @@ const USER = process.env.GATEWAY_USER ?? "periscope";
 const PASS = process.env.GATEWAY_PASS;
 const EXPECTED = PASS ? "Basic " + Buffer.from(`${USER}:${PASS}`).toString("base64") : null;
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+// GATEWAY_ALLOW_HOST_BROWSE=1 lets signed-in visitors browse this machine's folders and start Docker runs on
+// any local repo (not just fixtures/*). The native folder dialog stays blocked: it would open on the host.
+const ALLOW_HOST_BROWSE = ["1", "true"].includes(process.env.GATEWAY_ALLOW_HOST_BROWSE ?? "");
 
 // Always blocked: these touch the host machine or shared configuration.
 const BLOCKED = [
   /^\/api\/runtime\//,
   /^\/api\/repos?(\/|$)/,
-  /^\/api\/host(\/|$)/,
+  ...(ALLOW_HOST_BROWSE ? [/^\/api\/host\/pick-folder(\/|$)/] : [/^\/api\/host(\/|$)/]),
   /^\/api\/request-rules(\/|$)/,
-  /^\/api\/findings\/[^/]+\/resolve$/
+  /^\/api\/findings\/[^/]+\/resolve$/,
+  /^\/api\/runs\/[^/]+\/pull-request$/
 ];
 
 // Writes allowed without a password: they only edit the JSON store or start sandboxed fixture runs.
@@ -47,7 +51,7 @@ function launchDenied(body) {
   try { parsed = JSON.parse(body.toString("utf8") || "{}"); } catch { return "invalid JSON"; }
   if (parsed?.structuredOutput !== undefined && parsed?.repo === undefined) return null; // intent from pasted JSON, no run
   if (parsed?.runtime?.provider !== "docker") return "Public demo: only the Docker runtime is allowed (pick runtime \"docker\").";
-  if (!FIXTURE_REPO.test(String(parsed?.repo?.path ?? ""))) return "Public demo: repo path must be one of the bundled fixtures/* repos.";
+  if (!ALLOW_HOST_BROWSE && !FIXTURE_REPO.test(String(parsed?.repo?.path ?? ""))) return "Public demo: repo path must be one of the bundled fixtures/* repos.";
   return null;
 }
 
