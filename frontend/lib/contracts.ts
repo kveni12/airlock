@@ -201,6 +201,7 @@ export interface AuthStatus {
   authenticated: boolean;
   needsBootstrap: boolean;
   googleEnabled?: boolean;
+  openSignup?: boolean;
 }
 
 export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";

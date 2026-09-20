@@ -63,7 +63,8 @@ describe("authentication", () => {
     expect((await app.inject({ method: "GET", url: "/api/auth/status" })).json()).toEqual({
       authenticated: false,
       needsBootstrap: true,
-      googleEnabled: false
+      googleEnabled: false,
+      openSignup: false
     });
     expect((await app.inject({ method: "GET", url: "/health" })).statusCode).toBe(200);
   });
@@ -186,5 +187,59 @@ describe("authentication", () => {
       payload: { email: "third@example.com", password: "third-long-password" }
     });
     expect(forbidden.statusCode).toBe(403);
+  });
+
+  it("hides self-signup unless PERISCOPE_OPEN_SIGNUP is set", async () => {
+    const status = await app.inject({ method: "GET", url: "/api/auth/status" });
+    expect(status.json().openSignup).toBe(false);
+    const attempt = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { email: "walkin@example.com", password: "walkin-long-password" }
+    });
+    expect(attempt.statusCode).toBe(404);
+  });
+
+  it("lets anyone create an operator account when self-signup is enabled", async () => {
+    await app.close();
+    process.env.PERISCOPE_OPEN_SIGNUP = "1";
+    try {
+      const store = new JsonStore(path.join(temp, "store.json"));
+      auth = new AuthService(store);
+      app = await createApp({ store, auth });
+      await app.ready();
+
+      const beforeAdmin = await app.inject({
+        method: "POST",
+        url: "/api/auth/register",
+        payload: { email: "walkin@example.com", password: "walkin-long-password" }
+      });
+      expect(beforeAdmin.statusCode).toBe(409);
+
+      await signIn(app, auth);
+      const status = await app.inject({ method: "GET", url: "/api/auth/status" });
+      expect(status.json().openSignup).toBe(true);
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/auth/register",
+        payload: { email: "walkin@example.com", password: "walkin-long-password", displayName: "Walk-in" }
+      });
+      expect(created.statusCode).toBe(201);
+      expect(created.json().user.role).toBe("operator");
+      const cookie = created.cookies.find((item) => item.name === "periscope_session");
+      const me = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: `${cookie?.name}=${cookie?.value}` } });
+      expect(me.json().user.email).toBe("walkin@example.com");
+
+      const crossSite = await app.inject({
+        method: "POST",
+        url: "/api/auth/register",
+        headers: { origin: "https://evil.example" },
+        payload: { email: "other@example.com", password: "other-long-password" }
+      });
+      expect(crossSite.statusCode).toBe(403);
+    } finally {
+      delete process.env.PERISCOPE_OPEN_SIGNUP;
+    }
   });
 });

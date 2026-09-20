@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
-import { registerAuth } from "./auth/authRoutes.js";
+import { openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
 import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
@@ -95,7 +95,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
   const google = resolveGoogleConfig();
-  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google });
+  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google, openSignup: openSignupEnabled() });
   if (google) {
     app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
   }

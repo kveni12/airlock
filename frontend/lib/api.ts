@@ -94,6 +94,10 @@ export async function bootstrapAdmin(body: { email: string; password: string; di
   return (await post<{ user: PublicUser }>("/api/auth/bootstrap", body)).user;
 }
 
+export async function registerAccount(body: { email: string; password: string; displayName?: string }): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/register", body)).user;
+}
+
 export function logout() {
   return post<{ ok: boolean }>("/api/auth/logout");
 }
