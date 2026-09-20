@@ -1,12 +1,21 @@
+import { localAgent } from "../shared/local-agents.mjs";
 import cors from "@fastify/cors";
-import Fastify, { type FastifyInstance } from "fastify";
-import type { AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity } from "./types.js";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingClassification, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
+import { AuthService } from "./auth/authService.js";
+import { authDisabled, openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
+import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { IntentAmendmentService } from "./intent/intentAmendmentService.js";
+import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
+import { suggestScope } from "./projects/suggestScope.js";
+import { validateLocalScope } from "./runtime/localWorkspace.js";
+import { ProjectService } from "./projects/projectService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
 import { BehaviorAnalysisService } from "./analysis/behaviorAnalyzer.js";
@@ -14,13 +23,21 @@ import { ReviewService } from "./review/reviewService.js";
 import { ResolutionService, type ResolveFindingRequest } from "./resolution/resolutionService.js";
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
+import { RunManifestService, manifestToMarkdown } from "./manifest/runManifestService.js";
+import { PullRequestError, PullRequestService } from "./manifest/pullRequestService.js";
+import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
+import { listRunDirectory } from "./repo/runFiles.js";
+import { listRepoDirectory } from "./repo/repoTree.js";
+import { listHostFolders, nativeFolderDialogAvailable, pickHostFolder } from "./repo/hostFolders.js";
 
 export interface AppContext {
   store: JsonStore;
+  auth: AuthService;
   events: EventCollector;
   runtime: RuntimeManager;
   requests: RequestService;
   intents: IntentService;
+  amendments: IntentAmendmentService;
   intentAlignment: IntentAlignmentService;
   findings: FindingService;
   analysis: BehaviorAnalysisService;
@@ -28,11 +45,14 @@ export interface AppContext {
   resolutions: ResolutionService;
   summaries: SummaryService;
   insights: RunInsightService;
+  manifests: RunManifestService;
+  pullRequests: PullRequestService;
 }
 
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
   const store = context?.store ?? new JsonStore();
   await store.init();
+  const auth = context?.auth ?? new AuthService(store);
 
   const policy = new PolicyEngine(async (runId) => {
     const [run, permissions] = await Promise.all([store.getRun(runId), store.getPermissions(runId)]);
@@ -42,8 +62,12 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   const events = context?.events ?? new EventCollector(store, policy);
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
+  const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
+  const projects = new ProjectService(store);
   const intents = context?.intents ?? new IntentService(store);
+  const amendments = context?.amendments ?? new IntentAmendmentService(store, events, intents);
+  runtime.attachAmendments(amendments);
   const findings = context?.findings ?? new FindingService(store, events);
   const intentAlignment = context?.intentAlignment ?? new IntentAlignmentService(store, intents, findings);
   const analysis = context?.analysis ?? new BehaviorAnalysisService(store, findings);
@@ -51,6 +75,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const resolutions = context?.resolutions ?? new ResolutionService(store, events, runtime, findings, analysis, reviews);
   const summaries = context?.summaries ?? new SummaryService(store);
   const insights = context?.insights ?? new RunInsightService(store);
+  const manifests = context?.manifests ?? new RunManifestService(store, insights);
+  const pullRequests = context?.pullRequests ?? new PullRequestService(store, manifests, events);
 
   events.subscribeAll((event) => {
     if (event.category !== "runtime" || event.action !== "completed") return;
@@ -74,11 +100,47 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     intent.requestId ? (await intentAlignment.analyze(intent.id)).intent : intent;
 
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true });
+  if (recovered && (recovered.failedRuns.length || Object.values(recovered.reaped).some((ids) => ids.length))) {
+    app.log.warn({ recovered }, "Recovered sandboxes left behind by a previous backend process");
+  }
+  const allowedOrigins = resolveAllowedOrigins();
+  await app.register(cors, { origin: allowedOrigins, credentials: true });
+  const google = resolveGoogleConfig();
+  // Keep session endpoints available in demo mode; the auth hook handles bypass.
+  await registerAuth(app, auth, {
+    allowedOrigins,
+    cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
+    google,
+    openSignup: openSignupEnabled()
+  });
+  if (!authDisabled()) {
+    if (google) app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
+    const setupToken = await auth.issueSetupToken();
+    if (setupToken) {
+      app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+    }
+  }
 
   app.get("/health", async () => ({ ok: true }));
 
   app.get("/api/agent-profiles", async () => ({ profiles: await runtime.getAgentProfiles() }));
+
+  app.get("/api/runtime/status", async () => runtime.setup.status());
+
+  app.post("/api/runtime/setup", async (request, reply) => {
+    const body = request.body as { provider?: string; agent?: string } | undefined;
+    if (body?.provider === "docker") return reply.code(202).send(runtime.setup.startSetup({ provider: "docker" }));
+    if (body?.provider === "lima") return reply.code(202).send(runtime.setup.startSetup({ provider: "lima", agent: body.agent }));
+    return reply.code(400).send({ error: "provider must be 'docker' or 'lima'" });
+  });
+
+  app.get("/api/runtime/setup", async () => ({ jobs: runtime.setup.listJobs() }));
+
+  app.get("/api/runtime/setup/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const job = runtime.setup.getJob(id);
+    return job ?? reply.code(404).send({ error: `Setup job ${id} not found` });
+  });
 
   app.post("/api/runs", async (request, reply) => {
     try {
@@ -128,13 +190,24 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     }
   });
 
-  app.get("/api/runs", async () => ({ runs: await store.listRuns() }));
+  /** Planner runs recorded before intents back-filled their run record: derive links from the intent they produced. */
+  const withPlannerLinks = (run: RunRecord, allIntents: AgentIntent[]): RunRecord => {
+    if (run.intentId && run.requestId) return run;
+    const produced = allIntents.find((intent) => intent.planningRunId === run.id);
+    if (!produced) return run;
+    return { ...run, intentId: run.intentId ?? produced.id, requestId: run.requestId ?? produced.requestId };
+  };
+
+  app.get("/api/runs", async () => {
+    const [runs, allIntents] = await Promise.all([store.listRuns(), store.listIntents()]);
+    return { runs: runs.map((run) => withPlannerLinks(run, allIntents)) };
+  });
 
   app.get("/api/runs/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const run = await store.getRun(id);
     if (!run) return reply.code(404).send({ error: "Run not found" });
-    return run;
+    return withPlannerLinks(run, await store.listIntents());
   });
 
   app.post("/api/runs/:id/stop", async (request, reply) => {
@@ -158,6 +231,45 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     return permissions;
   });
 
+  app.get("/api/host/folders", async (request, reply) => {
+    const { dir } = request.query as { dir?: string };
+    try {
+      return { ...(await listHostFolders(dir)), nativeDialog: nativeFolderDialogAvailable() };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/host/pick-folder", async (request, reply) => {
+    const body = (request.body ?? {}) as { startDir?: unknown };
+    try {
+      const folder = await pickHostFolder(typeof body.startDir === "string" ? body.startDir : undefined);
+      return { path: folder };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/repo-tree", async (request, reply) => {
+    const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
+    if (!repoPath) return reply.code(400).send({ error: "path is required" });
+    try {
+      return await listRepoDirectory(repoPath, dir ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/runs/:id/tree", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { dir = "" } = request.query as { dir?: string };
+    const run = await store.getRun(id);
+    const permissions = await store.getPermissions(id);
+    if (!run || !permissions) return reply.code(404).send({ error: "Run not found" });
+    try { return await listRunDirectory(run, permissions, dir); }
+    catch { return reply.code(400).send({ error: "Folder unavailable. The workspace may have been removed, or the path is outside it." }); }
+  });
+
   app.get("/api/runs/:id/files", async (request, reply) => {
     const { id } = request.params as { id: string };
     const run = await store.getRun(id);
@@ -170,14 +282,108 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     };
   });
 
+  app.get("/api/runs/:id/manifest", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { format } = request.query as { format?: string };
+    if (!(await store.getRun(id))) return reply.code(404).send({ error: "Run not found" });
+    const manifest = await manifests.build(id);
+    if (format === "markdown" || format === "md") {
+      return reply.type("text/markdown; charset=utf-8").send(manifestToMarkdown(manifest));
+    }
+    return manifest;
+  });
+
+  app.post("/api/runs/:id/pull-request", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { branch?: string; push?: boolean; remote?: string; title?: string };
+    try {
+      const pullRequest = await pullRequests.createFromApprovedRun(id, { ...body, actor: actorFor(request) });
+      return reply.code(201).send(pullRequest);
+    } catch (error: unknown) {
+      if (error instanceof PullRequestError) return reply.code(error.statusCode).send({ error: error.message });
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post("/api/requests", async (request, reply) => {
     try {
-      const created = await requests.create(validateRequestDraft(request.body));
+      const created = await requests.create({ ...validateRequestDraft(request.body), createdBy: actorFor(request) });
       return reply.code(201).send(created);
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
   });
+
+  app.post("/api/requests/preview", async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { rawPrompt?: unknown; rules?: unknown };
+      return await requests.preview(typeof body.rawPrompt === "string" ? body.rawPrompt : "", body.rules);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/suggest-permissions", async (request, reply) => {
+    try {
+      const body = request.body as { repoPath?: string; description?: string; agentKind?: string };
+      if (typeof body.repoPath !== "string" || typeof body.description !== "string" || body.description.length > 20000) throw new Error("Provide a folder and a description of up to 20,000 characters");
+      return await suggestScope(body.repoPath, await requests.preview(body.description), body.agentKind);
+    } catch (error) { return reply.code(400).send({ error: errorMessage(error) }); }
+  });
+  app.post("/api/projects/validate-local", async (request, reply) => {
+    try {
+      const body = request.body as { repoPath: string; agentKind?: string; scope: { folders: PermissionSnapshot["filesystem"]; hosts: string[] } };
+      await validateLocalScope(body.repoPath, { filesystem: body.scope.folders });
+      for (const host of localAgent(body.agentKind).hosts) if (!body.scope.hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) throw new Error(`${localAgent(body.agentKind).name} account login requires ${host}`);
+      return { ok: true };
+    } catch (error) { return reply.code(400).send({ error: errorMessage(error) }); }
+  });
+
+  app.get("/api/projects", async () => projects.list());
+
+  app.post("/api/projects", async (request, reply) => {
+    try {
+      return reply.code(201).send(await projects.create(request.body));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/projects/:id", async (request, reply) => {
+    const project = await projects.get((request.params as { id: string }).id);
+    return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.put("/api/projects/:id", async (request, reply) => {
+    try {
+      const project = await projects.update((request.params as { id: string }).id, request.body);
+      return project ?? reply.code(404).send({ error: "Project not found" });
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/:id/open", async (request, reply) => {
+    const project = await projects.open((request.params as { id: string }).id);
+    return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.delete("/api/projects/:id", async (request, reply) => {
+    const removed = await projects.delete((request.params as { id: string }).id);
+    return removed ? reply.code(204).send() : reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.get("/api/request-rules", async () => requests.getRules());
+
+  app.put("/api/request-rules", async (request, reply) => {
+    try {
+      return await requests.updateRules(request.body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/request-rules/reset", async () => requests.resetRules());
 
   app.get("/api/requests/:id", async (request, reply) => {
     const humanRequest = await requests.get((request.params as { id: string }).id);
@@ -244,7 +450,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       if (body.structuredOutput !== undefined) {
         draft = intents.parseGeneratedOutput(body.structuredOutput);
       } else {
-        const plannerRequest = plannerRunRequest(body, taskId, agentId, humanRequest?.rawPrompt);
+        const plannerRequest = plannerRunRequest(body, taskId, agentId, humanRequest?.rawPrompt, requestId);
         const plannerRun = await runtime.createRun(plannerRequest);
         planningRunId = plannerRun.id;
         const completed = await runtime.waitForTerminal(plannerRun.id, plannerRequest.timeoutMs);
@@ -287,6 +493,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
         planningRunId,
         supersedes: typeof body.supersedes === "string" ? body.supersedes : undefined
       });
+      if (planningRunId) await store.updateRun(planningRunId, { intentId: intent.id, requestId });
       return reply.code(201).send(await alignIfRequested(intent));
     } catch (error: unknown) {
       return reply.code(422).send({ error: errorMessage(error) });
@@ -319,10 +526,57 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     }
   });
 
+  app.post("/api/intents/:id/access-check", async (request, reply) => {
+    const intent = await intents.get((request.params as { id: string }).id);
+    if (!intent) return reply.code(404).send({ error: "Intent not found" });
+    const { permissions } = (request.body ?? {}) as { permissions?: PermissionSnapshot };
+    return analyzeAccessGaps(intent, permissions ?? {});
+  });
+
   app.post("/api/intents/:id/approve", async (request, reply) => {
     try {
-      const body = (request.body ?? {}) as { actor?: string; reason?: string };
+      const body = decisionBody(request);
       return await intents.approve((request.params as { id: string }).id, body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/intent-amendments", async (request) => {
+    const { runId } = request.query as { runId?: string };
+    return { amendments: await amendments.list(runId) };
+  });
+
+  app.get("/api/intent-amendments/:id", async (request, reply) => {
+    const amendment = await amendments.get((request.params as { id: string }).id);
+    if (!amendment) return reply.code(404).send({ error: "Amendment not found" });
+    return amendment;
+  });
+
+  app.get("/api/runs/:id/intent-amendments", async (request) => {
+    return { amendments: await amendments.list((request.params as { id: string }).id) };
+  });
+
+  /** Agent-side request (also reachable from inside the sandbox via http://periscope.internal/amendments). */
+  app.post("/api/runs/:id/intent-amendments", async (request, reply) => {
+    try {
+      return reply.code(201).send(await amendments.request((request.params as { id: string }).id, request.body, "control_channel"));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/approve", async (request, reply) => {
+    try {
+      return await amendments.approve((request.params as { id: string }).id, decisionBody(request));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/deny", async (request, reply) => {
+    try {
+      return await amendments.deny((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -330,8 +584,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/intents/:id/reject", async (request, reply) => {
     try {
-      const body = (request.body ?? {}) as { actor?: string; reason?: string };
-      return await intents.reject((request.params as { id: string }).id, body);
+      return await intents.reject((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -371,7 +624,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
         severity: query.severity as EventSeverity | undefined,
         runId: query.runId,
         taskId: query.taskId,
-        source: query.source as FindingSource | undefined
+        source: query.source as FindingSource | undefined,
+        classification: query.classification as FindingClassification | undefined
       })
     };
   });
@@ -383,7 +637,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/findings/:id/dismiss", async (request, reply) => {
     try {
-      return await findings.dismiss((request.params as { id: string }).id, (request.body ?? {}) as { reason?: string; actor?: string });
+      return await findings.dismiss((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -435,10 +689,15 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/reviews/:id/approve", async (request, reply) => {
     try {
-      return await reviews.approve(
-        (request.params as { id: string }).id,
-        (request.body ?? {}) as { actor?: string; reason?: string }
-      );
+      return await reviews.approve((request.params as { id: string }).id, decisionBody(request));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/reviews/:id/reject", async (request, reply) => {
+    try {
+      return await reviews.reject((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -464,7 +723,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "X-Accel-Buffering": "no"
+      "X-Accel-Buffering": "no",
+      ...corsHeadersFor(request.headers.origin, allowedOrigins)
     });
 
     for (const event of await events.getEvents(id)) {
@@ -487,23 +747,47 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The authenticated operator, so a recorded governance decision names a real account rather than a caller-supplied string. */
+function actorFor(request: FastifyRequest): string | undefined {
+  return request.user ? `${request.user.displayName} <${request.user.email}>` : undefined;
+}
+
+function decisionBody(request: FastifyRequest): { actor?: string; reason?: string } {
+  const body = (request.body ?? {}) as { actor?: string; reason?: string };
+  return { reason: body.reason, actor: actorFor(request) ?? body.actor };
+}
+
+function resolveAllowedOrigins(): string[] {
+  const configured = process.env.PERISCOPE_ALLOWED_ORIGINS;
+  if (!configured) return ["http://localhost:3001", "http://127.0.0.1:3001"];
+  return configured.split(",").map((origin) => origin.trim()).filter(Boolean);
+}
+
+/** Hijacked responses (the SSE stream) bypass the CORS plugin and must set these themselves. */
+export function corsHeadersFor(origin: string | undefined, allowedOrigins: string[]): Record<string, string> {
+  if (!origin || !allowedOrigins.includes(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin"
+  };
+}
+
 function requiredBodyString(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
   return value.trim();
 }
 
-function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentId: string, rawPrompt?: string): CreateRunRequest {
+function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentId: string, rawPrompt?: string, requestId?: string): CreateRunRequest {
   const repo = body.repo as CreateRunRequest["repo"] | undefined;
   const agent = body.agent as CreateRunRequest["agent"] | undefined;
   const command = body.command as string[] | undefined;
   if (!repo?.path) throw new Error("repo.path is required for planner generation");
   if (!agent && !command?.length) throw new Error("agent or command is required for planner generation");
   const instruction = [
-    "Analyze the task without modifying the repository; the workspace is mounted read-only and any write will fail the planning run.",
-    "Emit exactly one AGENTGUARD_EVENT line with category agent, action intent, and metadata.intent.",
-    "The intent object must include goal, interpretation, plannedActions, expectedFiles, expectedDependencies, expectedCommands, expectedNetwork, expectedMcpServers, expectedSecrets, expectedTools, constraints, and optionally assumptions.",
+    PLANNER_OUTPUT_INSTRUCTION,
     rawPrompt ? `Human request: ${rawPrompt}` : typeof body.goal === "string" ? `Task: ${body.goal}` : ""
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join("\n\n");
   return {
     taskId,
     agentId,
@@ -516,25 +800,9 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
     timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 300_000,
     cleanupWorkspace: true,
     runtime: body.runtime as CreateRunRequest["runtime"],
+    requestId,
+    projectId: typeof body.projectId === "string" ? body.projectId : undefined,
     purpose: "planner"
   };
 }
 
-function extractGeneratedIntent(eventList: Awaited<ReturnType<JsonStore["getEvents"]>>): unknown {
-  for (const event of [...eventList].reverse()) {
-    if (event.category === "agent" && event.action === "intent" && event.metadata?.intent) return event.metadata.intent;
-    if (event.category === "agent" && event.action === "message" && typeof event.metadata?.text === "string") {
-      const marker = "AGENTGUARD_EVENT ";
-      const index = event.metadata.text.indexOf(marker);
-      if (index >= 0) {
-        try {
-          const parsed = JSON.parse(event.metadata.text.slice(index + marker.length).trim()) as { metadata?: { intent?: unknown } };
-          if (parsed.metadata?.intent) return parsed.metadata.intent;
-        } catch {
-          continue;
-        }
-      }
-    }
-  }
-  return undefined;
-}

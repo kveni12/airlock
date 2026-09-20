@@ -1,32 +1,37 @@
 @import "tailwindcss";
 
 :root {
-  --canvas: #f3f5f0;
-  --ink: #111713;
-  --muted: #657068;
-  --card: #fbfcf8;
-  --line: #d6ddd2;
-  --dark: #101913;
-  --acid: #dff869;
-  --green: #19734a;
+  --canvas: #f4f5f6;
+  --ink: #14212a;
+  --muted: #64717c;
+  --card: #fbfbfa;
+  --line: #d5dbdf;
+  --dark: #182a33;
+  --sand: #d1b191;
+  --navy: #182a33;
   --amber: #9a5a13;
 }
 
 * { box-sizing: border-box; border-color: var(--line); }
-html { background: var(--canvas); }
+html { background: var(--canvas); color-scheme: light; }
+@layer base {
+  input, textarea, select, option { background-color: #fff; color: var(--ink); }
+  input::placeholder, textarea::placeholder { color: #8a949c; }
+}
 body { margin: 0; background: var(--canvas); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 button, input { font: inherit; }
 a { color: inherit; text-decoration: none; }
-::selection { background: var(--acid); color: var(--dark); }
+::selection { background: var(--sand); color: var(--dark); }
 
 .card { border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
-.eyebrow { color: var(--green); font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
+.eyebrow { color: var(--navy); font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
 .status { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 650; }
 .status-good { border-color: #9bd7b5; background: #effaf3; color: #14623f; }
 .status-warn { border-color: #eac27f; background: #fff8e8; color: #815017; }
 .status-info { border-color: #a9cde1; background: #eff8fc; color: #265d78; }
 .status-bad { border-color: #e3a59b; background: #fff1ee; color: #8c2f26; }
-.status-muted { border-color: #d6ddd2; background: #f1f4ee; color: #657068; }
+.status-muted { border-color: #d5dbdf; background: #f0f2f3; color: #64717c; }
+.status-violation { border-color: #8c2f26; background: #8c2f26; color: #ffffff; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-.skeleton { animation: pulse 1.3s ease-in-out infinite; background: #e2e7df; border-radius: 8px; }
+.skeleton { animation: pulse 1.3s ease-in-out infinite; background: #e1e5e8; border-radius: 8px; }
 @keyframes pulse { 50% { opacity: .52; } }

@@ -12,6 +12,7 @@ const runAgentSmokeTests = process.env.RUN_AGENT_SMOKE_TESTS === "1";
 
 const agents: Array<{ kind: AgentKind; command: string[]; expectedBase: string }> = [
   { kind: "codex", command: ["codex", "--version"], expectedBase: "agentguard-codex-base" },
+  { kind: "opencode", command: ["opencode", "--version"], expectedBase: "agentguard-opencode-base" },
   { kind: "claude_code", command: ["claude", "--version"], expectedBase: "agentguard-claude-code-base" },
   { kind: "cursor", command: ["agent", "--version"], expectedBase: "agentguard-cursor-base" },
   {

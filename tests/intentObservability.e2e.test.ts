@@ -1,10 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
+import { AuthService } from "../src/auth/authService.js";
 import { JsonStore } from "../src/store/jsonStore.js";
+import { signIn } from "./testAuth.js";
 import type { ObservedBehavior } from "../src/analysis/observedBehavior.js";
 import type {
   AgentEvent,
@@ -19,7 +22,7 @@ import type {
   TimelineEntry
 } from "../src/types.js";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(repoRoot, "fixtures/intent-demo-repo");
 const planner = path.join(repoRoot, "runtime/intent-demo-planner.sh");
 const builder = path.join(repoRoot, "runtime/intent-demo-builder.sh");
@@ -28,8 +31,10 @@ const runtime = { provider: "process" as const };
 const PROMPT =
   "Fix the login/session bug and add a regression test.\nDo not modify database or infrastructure configuration.\nDo not add external dependencies.";
 
+let cookie = "";
+
 async function api<T>(app: FastifyInstance, method: "GET" | "POST", url: string, body?: Record<string, unknown>): Promise<T> {
-  const response = await app.inject({ method, url, payload: body });
+  const response = await app.inject({ method, url, payload: body, headers: { cookie } });
   if (response.statusCode >= 400) throw new Error(`${method} ${url} -> ${response.statusCode}: ${response.body}`);
   return response.json() as T;
 }
@@ -50,8 +55,11 @@ describe("intent observability end-to-end (process runtime)", () => {
 
   beforeAll(async () => {
     temp = await mkdtemp(path.join(os.tmpdir(), "agentguard-intent-e2e-"));
-    app = await createApp({ store: new JsonStore(path.join(temp, "store.json")) });
+    const store = new JsonStore(path.join(temp, "store.json"));
+    const auth = new AuthService(store);
+    app = await createApp({ store, auth });
     await app.ready();
+    cookie = await signIn(app, auth);
   });
 
   afterAll(async () => {
@@ -80,7 +88,7 @@ describe("intent observability end-to-end (process runtime)", () => {
     expect(intent.alignment?.status).toBe("aligned");
     expect(intent.plannedChanges).toHaveLength(4);
 
-    const { runId } = await api<{ runId: string }>(app, "POST", "/api/runs", {
+    const builderInput = {
       taskId,
       agentId: "builder",
       repo: { path: fixture },
@@ -89,7 +97,13 @@ describe("intent observability end-to-end (process runtime)", () => {
       runtime,
       intentId: intent.id,
       cleanupWorkspace: false
-    });
+    };
+    const unapproved = await app.inject({ method: "POST", url: "/api/runs", payload: builderInput, headers: { cookie } });
+    expect(unapproved.statusCode).toBe(400);
+    expect(unapproved.json<{ error: string }>().error).toContain("requires human approval");
+
+    await api(app, "POST", `/api/intents/${intent.id}/approve`, { reason: "Plan reviewed before builder execution" });
+    const { runId } = await api<{ runId: string }>(app, "POST", "/api/runs", builderInput);
     const run = await poll(() => api<RunRecord>(app, "GET", `/api/runs/${runId}`), (r) => ["completed", "failed", "stopped"].includes(r.status));
     expect(run.status).toBe("completed");
     expect(run.requestId).toBe(request.id);
@@ -107,6 +121,11 @@ describe("intent observability end-to-end (process runtime)", () => {
     expect(infra?.evidence?.requestId).toBe(request.id);
     expect(dependency?.file).toBe("package.json");
     expect(findings.some((f) => f.file === "src/auth/session.js")).toBe(false);
+    const violations = findings.filter((f) => f.type === "constraint_violation");
+    expect(violations.map((f) => f.evidence?.observedResource).sort()).toEqual(["axios", "infra/prod.tf"]);
+    expect(violations.every((f) => f.classification === "request_drift")).toBe(true);
+    expect(violations.find((f) => f.file === "infra/prod.tf")?.severity).toBe("critical");
+    expect(infra?.classification).toBe("plan_drift");
 
     const behavior = await api<ObservedBehavior>(app, "GET", `/api/runs/${runId}/behavior`);
     expect(behavior.files.modified.map((f) => f.name).sort()).toEqual(["infra/prod.tf", "package.json", "src/auth/session.js", "tests/auth/session.test.js"]);
@@ -154,6 +173,7 @@ describe("intent observability end-to-end (process runtime)", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/intents/generate",
+      headers: { cookie },
       payload: {
         taskId: "e2e-planner-writes",
         agentId: "bad-planner",
@@ -175,6 +195,7 @@ describe("intent observability end-to-end (process runtime)", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/intents/generate",
+      headers: { cookie },
       payload: {
         taskId: "e2e-malformed",
         agentId: "bad-planner",

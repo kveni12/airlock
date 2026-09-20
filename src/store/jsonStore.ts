@@ -1,17 +1,23 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
   AgentEvent,
   AgentIntent,
   Finding,
   GitSummary,
   HumanRequest,
+  IntentAmendment,
   PermissionSnapshot,
+  Project,
   RequestAnalysis,
+  RequestAnalyzerRules,
   ResolutionAttempt,
   Review,
   RunRecord,
-  StoredData
+  StoredData,
+  User
 } from "../types.js";
 
 export class JsonStore {
@@ -23,6 +29,44 @@ export class JsonStore {
     await mkdir(path.dirname(this.filePath), { recursive: true });
     const data = await this.read();
     await this.write(data);
+  }
+
+  async createUser(user: User): Promise<void> {
+    await this.update((data) => {
+      if (data.users.some((existing) => existing.email === user.email)) {
+        throw new Error(`A user with email ${user.email} already exists`);
+      }
+      data.users.push(user);
+    });
+  }
+
+  async updateUser(userId: string, patch: Partial<User>): Promise<User | undefined> {
+    let updated: User | undefined;
+    await this.update((data) => {
+      const user = data.users.find((item) => item.id === userId);
+      if (!user) return;
+      Object.assign(user, patch);
+      updated = user;
+    });
+    return updated;
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await this.update((data) => {
+      data.users = data.users.filter((user) => user.id !== userId);
+    });
+  }
+
+  async getUser(userId: string): Promise<User | undefined> {
+    return (await this.read()).users.find((user) => user.id === userId);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return (await this.read()).users.find((user) => user.email === email);
+  }
+
+  async listUsers(): Promise<User[]> {
+    return (await this.read()).users;
   }
 
   async createRun(run: RunRecord, permissions: PermissionSnapshot): Promise<void> {
@@ -69,6 +113,38 @@ export class JsonStore {
     return data.permissions[runId];
   }
 
+  async setPermissions(runId: string, permissions: PermissionSnapshot): Promise<void> {
+    await this.update((data) => {
+      data.permissions[runId] = permissions;
+    });
+  }
+
+  async createIntentAmendment(amendment: IntentAmendment): Promise<void> {
+    await this.update((data) => {
+      data.intentAmendments = [...(data.intentAmendments ?? []), amendment];
+    });
+  }
+
+  async updateIntentAmendment(id: string, patch: Partial<IntentAmendment>): Promise<IntentAmendment | undefined> {
+    let updated: IntentAmendment | undefined;
+    await this.update((data) => {
+      const amendment = (data.intentAmendments ?? []).find((item) => item.id === id);
+      if (!amendment) return;
+      Object.assign(amendment, patch);
+      updated = amendment;
+    });
+    return updated;
+  }
+
+  async getIntentAmendment(id: string): Promise<IntentAmendment | undefined> {
+    return ((await this.read()).intentAmendments ?? []).find((item) => item.id === id);
+  }
+
+  async listIntentAmendments(runId?: string): Promise<IntentAmendment[]> {
+    const all = (await this.read()).intentAmendments ?? [];
+    return runId ? all.filter((item) => item.runId === runId) : all;
+  }
+
   async createRequest(request: HumanRequest): Promise<void> {
     await this.update((data) => data.requests.push(request));
   }
@@ -102,6 +178,57 @@ export class JsonStore {
 
   async getRequestAnalysis(requestId: string): Promise<RequestAnalysis | undefined> {
     return (await this.read()).requestAnalyses.find((analysis) => analysis.requestId === requestId);
+  }
+
+  async getRequestRules(): Promise<RequestAnalyzerRules | undefined> {
+    return (await this.read()).requestRules;
+  }
+
+  async setRequestRules(rules: RequestAnalyzerRules): Promise<void> {
+    await this.update((data) => {
+      data.requestRules = rules;
+    });
+  }
+
+  async listProjects(): Promise<Project[]> {
+    return (await this.read()).projects ?? [];
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    return ((await this.read()).projects ?? []).find((project) => project.id === id);
+  }
+
+  async createProject(project: Project): Promise<void> {
+    await this.update((data) => {
+      data.projects = [...(data.projects ?? []), project];
+    });
+  }
+
+  async updateProject(id: string, patch: Partial<Project>): Promise<Project | undefined> {
+    let updated: Project | undefined;
+    await this.update((data) => {
+      const project = (data.projects ?? []).find((item) => item.id === id);
+      if (!project) return;
+      Object.assign(project, patch);
+      updated = project;
+    });
+    return updated;
+  }
+
+  async replaceProject(project: Project): Promise<void> {
+    await this.update((data) => {
+      data.projects = (data.projects ?? []).map((item) => (item.id === project.id ? project : item));
+    });
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    let removed = false;
+    await this.update((data) => {
+      const before = data.projects?.length ?? 0;
+      data.projects = (data.projects ?? []).filter((project) => project.id !== id);
+      removed = data.projects.length !== before;
+    });
+    return removed;
   }
 
   async createIntent(intent: AgentIntent): Promise<void> {
@@ -220,25 +347,55 @@ export class JsonStore {
   }
 
   private async update(mutator: (data: StoredData) => void): Promise<void> {
-    this.writeChain = this.writeChain.then(async () => {
+    const update = async (): Promise<void> => {
       const data = await this.read();
       mutator(data);
       await this.write(data);
-    });
+    };
+
+    // A transient filesystem error should fail its caller without permanently
+    // poisoning the queue for all later writes.
+    this.writeChain = this.writeChain.then(update, update);
     await this.writeChain;
   }
 
   private async write(data: StoredData): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`);
-    await rename(tempPath, this.filePath);
+    const tempPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
+
+    try {
+      await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`);
+      await renameWithRetry(tempPath, this.filePath);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
+  }
+}
+
+const TRANSIENT_RENAME_ERRORS = new Set(["EACCES", "EBUSY", "EPERM"]);
+
+async function renameWithRetry(source: string, destination: string): Promise<void> {
+  const maxRetries = 6;
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, destination);
+      return;
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !TRANSIENT_RENAME_ERRORS.has(code) || attempt >= maxRetries) {
+        throw error;
+      }
+
+      await delay(25 * 2 ** attempt);
+    }
   }
 }
 
 function emptyStoredData(): StoredData {
   return {
     runs: [],
+    users: [],
     events: [],
     permissions: {},
     requests: [],
@@ -253,6 +410,7 @@ function emptyStoredData(): StoredData {
 function normalizeStoredData(data: Partial<StoredData>): StoredData {
   return {
     runs: data.runs ?? [],
+    users: data.users ?? [],
     events: data.events ?? [],
     permissions: data.permissions ?? {},
     requests: data.requests ?? [],
@@ -260,7 +418,10 @@ function normalizeStoredData(data: Partial<StoredData>): StoredData {
     intents: (data.intents ?? []).map(normalizeStoredIntent),
     findings: data.findings ?? [],
     reviews: (data.reviews ?? []).map((review) => ({ ...review, findingIds: review.findingIds ?? [] })),
-    resolutions: data.resolutions ?? []
+    resolutions: data.resolutions ?? [],
+    requestRules: data.requestRules,
+    projects: data.projects ?? [],
+    intentAmendments: data.intentAmendments ?? []
   };
 }
 

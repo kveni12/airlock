@@ -1,17 +1,17 @@
-# AgentGuard frontend
+# Periscope frontend
 
-This Next.js app is the review and runtime-observability interface for the AgentGuard backend in the parent directory.
+This Next.js app is the review and runtime-observability interface for the Periscope backend in the parent directory.
 
 ## Run locally
 
-Start the backend from `agent-guard`:
+Start the backend from `periscope`:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-Then start the frontend from `agent-guard/frontend`:
+Then start the frontend from `periscope/frontend`:
 
 ```powershell
 npm install

@@ -38,7 +38,7 @@ export class ResolutionService {
       : await this.store.getIntentForRun(originalRun.id);
     if (!intent) throw new Error("The original run has no attached intent");
 
-    const resolverAgentId = request.resolverAgentId ?? "agentguard-deterministic-resolver";
+    const resolverAgentId = request.resolverAgentId ?? "periscope-deterministic-resolver";
     const attempt: ResolutionAttempt = {
       id: createId("resolution"),
       findingId,
@@ -176,7 +176,7 @@ export class ResolutionService {
         candidate.status === "open" &&
         [original.runId, resolutionRunId].includes(candidate.runId) &&
         candidateResource?.replace(/^\/workspace\//, "").replace(/\/$/, "") === normalized &&
-        ["spec_drift", "sensitive_change", "permission"].includes(candidate.type)
+        ["spec_drift", "sensitive_change", "permission", "dependency", "constraint_violation"].includes(candidate.type)
       );
     });
     for (const candidate of related) {
@@ -205,7 +205,7 @@ function defaultResolutionCommand(finding: Finding, request: ResolveFindingReque
     `printf 'AGENTGUARD_EVENT {"category":"agent","action":"tool_result","resource":"shell","metadata":{"command":${JSON.stringify(testLabel)},"exitCode":%s}}\\n' "$status"`,
     'exit "$status"'
   ].join("; ");
-  return ["bash", "-lc", script, "agentguard-resolver", file];
+  return ["bash", "-lc", script, "periscope-resolver", file];
 }
 
 function safeRelativePath(value?: string): string | undefined {

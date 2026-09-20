@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AgentEvent, EventInput, PermissionSnapshot } from "../types.js";
+import type { AgentEvent, EventInput, FilePermission, PermissionSnapshot } from "../types.js";
 
 export const DEFAULT_SENSITIVE_PATTERNS = [
   ".env",
@@ -25,7 +25,7 @@ export class PolicyEngine {
   constructor(private readonly contextForRun: (runId: string) => Promise<PolicyContext | undefined>) {}
 
   async evaluate(event: AgentEvent): Promise<EventInput[]> {
-    if (event.category === "policy") return [];
+    if (event.category === "policy" || event.metadata?.attribution === "unattributed") return [];
 
     const context = await this.contextForRun(event.runId);
     if (!context) return [];
@@ -42,10 +42,11 @@ export class PolicyEngine {
           violations.push(this.violation(event, "sensitive_file_change", resource, "Agent modified a potentially sensitive file."));
         }
 
-        const allowedFiles = context.permissions.filesystem ?? [];
-        if (allowedFiles.length && !allowedFiles.some((permission) => pathWithinPermission(resource, permission.path))) {
+        if (!writeAllowed(resource, context.permissions.filesystem ?? [])) {
           violations.push(this.violation(event, "permission_scope", resource, "Agent touched a path outside its declared filesystem scope."));
         }
+      } else if (resource && event.category === "filesystem" && isReadAction(event.action) && !readAllowed(resource, context.permissions.filesystem ?? [])) {
+        violations.push(this.violation(event, "permission_scope", resource, "Agent read a path marked no access."));
       }
     }
 
@@ -91,18 +92,48 @@ function isModificationAction(action: string): boolean {
   return ["create", "write", "delete", "file_changed"].includes(action);
 }
 
-function normalizeResource(resource?: string): string | undefined {
+function isReadAction(action: string): boolean {
+  return ["read", "open", "list", "list_dir", "search", "glob", "grep"].includes(action);
+}
+
+export function normalizeResource(resource?: string): string | undefined {
   if (!resource) return undefined;
   return resource.replace(/^\/workspace\//, "").replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
-function pathWithinPermission(resource: string, permissionPath: string): boolean {
+/** The most specific matching grant decides; with no grants, access remains unscoped for backward compatibility. */
+export function writeAllowed(resource: string, filesystem: FilePermission[]): boolean {
+  return effectiveFileAccess(resource, filesystem) === "read_write";
+}
+
+export function readAllowed(resource: string, filesystem: FilePermission[]): boolean {
+  const access = effectiveFileAccess(resource, filesystem);
+  return access === "read" || access === "read_write";
+}
+
+export function effectiveFileAccess(resource: string, filesystem: FilePermission[]): FilePermission["access"] | undefined {
+  if (!filesystem.length) return "read_write";
+  let best: FilePermission | undefined;
+  let bestLength = -1;
+  for (const permission of filesystem) {
+    if (!pathWithinPermission(resource, permission.path)) continue;
+    const normalized = normalizeResource(permission.path) ?? "";
+    const length = ["/workspace", "/workspace/", ".", ""].includes(normalized) ? 0 : normalized.length;
+    if (length > bestLength) {
+      best = permission;
+      bestLength = length;
+    }
+  }
+  return best?.access;
+}
+
+export function pathWithinPermission(resource: string, permissionPath: string): boolean {
   const normalizedPermission = normalizeResource(permissionPath) ?? permissionPath;
   if (["/workspace", "/workspace/", ".", ""].includes(normalizedPermission)) return true;
   return resource === normalizedPermission || resource.startsWith(`${normalizedPermission.replace(/\/$/, "")}/`);
 }
 
-function hostAllowed(host: string, allowedHosts: string[]): boolean {
+export function hostAllowed(host: string, allowedHosts: string[]): boolean {
   return allowedHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 }
 

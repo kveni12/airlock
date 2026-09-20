@@ -60,3 +60,46 @@ describe("PolicyEngine", () => {
     expect(violations[0].metadata?.rule).toBe("network_scope");
   });
 });
+
+describe("PolicyEngine read-only scope", () => {
+  it("flags writes to paths that are only granted read access", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "read" }, { path: "/workspace/tests", access: "read_write" }] }
+    }));
+    const base = { id: "e", runId: "r", taskId: "t", agentId: "a", timestamp: new Date().toISOString(), category: "filesystem" as const, action: "write" };
+    const denied = await engine.evaluate({ ...base, resource: "/workspace/src/app.js" });
+    expect(denied.map((event) => event.metadata?.rule)).toContain("permission_scope");
+    const allowed = await engine.evaluate({ ...base, resource: "/workspace/tests/app.test.js" });
+    expect(allowed.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
+  });
+
+  it("lets a read-only subfolder narrow a writable parent (most specific grant wins)", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "read_write" }, { path: "/workspace/infra", access: "read" }] }
+    }));
+    const base = { id: "e", runId: "r", taskId: "t", agentId: "a", timestamp: new Date().toISOString(), category: "filesystem" as const, action: "write" };
+    const denied = await engine.evaluate({ ...base, resource: "/workspace/infra/prod.tf" });
+    expect(denied.map((event) => event.metadata?.rule)).toContain("permission_scope");
+    const allowed = await engine.evaluate({ ...base, resource: "/workspace/src/app.js" });
+    expect(allowed.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
+  });
+
+  it("lets an allowed child override a no-access repository root", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "none" }, { path: "/workspace/src/auth", access: "read_write" }] }
+    }));
+    const base = { id: "e", runId: "r", taskId: "t", agentId: "a", timestamp: new Date().toISOString(), category: "filesystem" as const };
+    const hiddenWrite = await engine.evaluate({ ...base, action: "write", resource: "/workspace/src/app.js" });
+    expect(hiddenWrite.map((event) => event.metadata?.rule)).toContain("permission_scope");
+    const allowedWrite = await engine.evaluate({ ...base, action: "write", resource: "/workspace/src/auth/session.js" });
+    expect(allowedWrite.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
+    const hiddenRead = await engine.evaluate({ ...base, action: "read", resource: "/workspace/package.json" });
+    expect(hiddenRead.map((event) => event.metadata?.rule)).toContain("permission_scope");
+  });
+});
+
+it("does not blame the agent for unattributed edits to a shared local workspace", async () => {
+  const engine = new PolicyEngine(async () => ({ permissions: { filesystem: [{ path: "/workspace", access: "read" }] } }));
+  await expect(engine.evaluate({ ...baseEvent, resource: "/workspace/infra/prod.tf", metadata: { attribution: "unattributed" } })).resolves.toEqual([]);
+  await expect(engine.evaluate({ ...baseEvent, category: "git", action: "file_changed", resource: "infra/prod.tf", metadata: { attribution: "unattributed" } })).resolves.toEqual([]);
+});

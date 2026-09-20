@@ -23,15 +23,15 @@ export function VerificationBadge({ verification }: { verification: EvidenceVeri
 
 export function verificationHelp(verification: EvidenceVerification | "unavailable"): string {
   switch (verification) {
-    case "independent": return "Observed directly by AgentGuard telemetry (filesystem, git, proxy, runtime).";
+    case "independent": return "Observed directly by Periscope telemetry (filesystem, git, proxy, runtime).";
     case "agent_reported": return "Reported by the agent itself; not independently verified.";
     case "inferred": return "Derived by analysis; not a direct observation.";
-    case "unavailable": return "AgentGuard cannot observe this channel; absence is not evidence.";
+    case "unavailable": return "Periscope cannot observe this channel; absence is not evidence.";
   }
 }
 
 export function RunStatusBadge({ status }: { status: RunStatus }) {
-  const cls = status === "completed" ? "status-good" : status === "failed" ? "status-bad" : ["running", "starting", "pending", "stopping"].includes(status) ? "status-info" : "";
+  const cls = status === "completed" ? "status-good" : status === "failed" ? "status-bad" : ["running", "starting", "pending", "stopping"].includes(status) ? "status-info" : status === "paused" ? "status-warn" : "";
   return <span className={`status ${cls}`}>{status}</span>;
 }
 
@@ -51,18 +51,18 @@ export function Section({ title, eyebrow, action, children, className = "" }: { 
 }
 
 export function Chips({ items, empty = "none", mono = true }: { items: string[]; empty?: string; mono?: boolean }) {
-  if (!items.length) return <span className="text-sm text-[#657068]">{empty}</span>;
-  return <div className="flex flex-wrap gap-1.5">{items.map((item) => <span key={item} className={`rounded-md border bg-[#e9ede5]/60 px-2 py-1 text-xs ${mono ? "mono" : ""}`}>{item}</span>)}</div>;
+  if (!items.length) return <span className="text-sm text-[#64717c]">{empty}</span>;
+  return <div className="flex flex-wrap gap-1.5">{items.map((item) => <span key={item} className={`rounded-md border bg-[#e6e9eb]/60 px-2 py-1 text-xs ${mono ? "mono" : ""}`}>{item}</span>)}</div>;
 }
 
 export function KeyValue({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="grid gap-1 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-3"><dt className="text-xs font-semibold uppercase tracking-wider text-[#657068]">{label}</dt><dd className="min-w-0 text-sm">{children}</dd></div>;
+  return <div className="grid gap-1 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-3"><dt className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">{label}</dt><dd className="min-w-0 text-sm">{children}</dd></div>;
 }
 
 export function ActionButton({ children, onClick, variant = "primary", disabled, confirm }: { children: React.ReactNode; onClick: () => Promise<unknown> | void; variant?: "primary" | "secondary" | "danger"; disabled?: boolean; confirm?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cls = variant === "primary" ? "bg-[#dff869] text-[#17200f] hover:bg-[#d3ee55]" : variant === "danger" ? "border border-[#e3a59b] bg-white text-[#9a3d31] hover:bg-[#fff1ee]" : "border bg-white hover:bg-[#f4f7f1]";
+  const cls = variant === "primary" ? "bg-[#d1b191] text-[#182a33] hover:bg-[#c4a17d]" : variant === "danger" ? "border border-[#e3a59b] bg-white text-[#9a3d31] hover:bg-[#fff1ee]" : "border bg-white hover:bg-[#f3f4f5]";
   return <span className="inline-flex flex-col items-start gap-1">
     <button
       disabled={disabled || busy}
@@ -82,8 +82,8 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
   return <div className="flex items-center justify-between gap-3 rounded-xl border border-[#e3a59b] bg-[#fff1ee] p-4 text-sm text-[#7a2d24]"><span>{message}</span>{onRetry && <button onClick={onRetry} className="rounded-lg border border-[#e3a59b] bg-white px-3 py-1.5 text-xs font-semibold">Retry</button>}</div>;
 }
 
-export function Empty({ title, body }: { title: string; body?: string }) {
-  return <div className="rounded-xl border border-dashed p-6 text-center text-sm text-[#657068]"><p className="font-semibold text-[#111713]">{title}</p>{body && <p className="mt-1">{body}</p>}</div>;
+export function Empty({ title, body, action }: { title: string; body?: string; action?: React.ReactNode }) {
+  return <div className="rounded-xl border border-dashed p-6 text-center text-sm text-[#64717c]"><p className="font-semibold text-[#14212a]">{title}</p>{body && <p className="mt-1">{body}</p>}{action && <div className="mt-3 flex justify-center">{action}</div>}</div>;
 }
 
 export function formatTime(iso: string) {

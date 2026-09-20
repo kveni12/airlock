@@ -153,13 +153,18 @@ export function buildAlignment(ctx: RunContext): AlignmentSummary {
     intentToBehavior = { status: "aligned", findingIds: behaviorFindings.map((f) => f.id), detail: "Run has not finished; behavior comparison is partial." };
   } else {
     const deviationFindings = behaviorFindings.filter((finding) => finding.type !== "missing_action" && finding.status !== "dismissed");
-    const deviations = deviationFindings.length;
+    const violations = deviationFindings.filter((finding) => finding.type === "constraint_violation").length;
+    const deviations = deviationFindings.length - violations;
     const resolved = deviationFindings.filter((finding) => finding.status === "resolved").length;
+    const parts = [
+      violations ? `${violations} explicit request constraint(s) violated` : "",
+      deviations ? `${deviations} undeclared behavior(s)` : ""
+    ].filter(Boolean);
     intentToBehavior = {
       status: statusFor(behaviorFindings),
       findingIds: behaviorFindings.map((finding) => finding.id),
-      detail: deviations
-        ? `${deviations} undeclared behavior(s) detected${resolved ? ` (${resolved} resolved)` : ""}`
+      detail: parts.length
+        ? `${parts.join(", ")}${resolved ? ` (${resolved} resolved)` : ""}`
         : "Observed behavior matched the declared intent within available telemetry."
     };
   }
@@ -167,11 +172,14 @@ export function buildAlignment(ctx: RunContext): AlignmentSummary {
   let behaviorToResult: AlignmentSegment | undefined;
   if (review) {
     const openReview = reviewFindings.filter((finding) => finding.status !== "resolved" && finding.status !== "dismissed");
-    const status: AlignmentStatus = review.status === "failed" ? "conflict" : openReview.length ? statusFor(openReview) : "aligned";
+    const status: AlignmentStatus = review.status === "failed" || review.status === "rejected" ? "conflict" : openReview.length ? statusFor(openReview) : "aligned";
     behaviorToResult = {
       status: status === "aligned" && review.status !== "approved" && review.filesReviewed < review.filesTotal ? "warning" : status,
       findingIds: reviewFindings.map((finding) => finding.id),
-      detail: `${review.filesReviewed}/${review.filesTotal} files reviewed, ${reviewFindings.length} finding(s), ${openReview.length} unresolved`
+      detail:
+        review.status === "rejected"
+          ? `Rejected by human review${review.rejection?.reason ? `: ${review.rejection.reason}` : ""}`
+          : `${review.filesReviewed}/${review.filesTotal} files reviewed, ${reviewFindings.length} finding(s), ${openReview.length} unresolved`
     };
   }
 
@@ -184,6 +192,7 @@ export function buildAlignment(ctx: RunContext): AlignmentSummary {
     intentToBehavior,
     behaviorToResult,
     counts: {
+      constraintViolations: active.filter((finding) => finding.type === "constraint_violation").length,
       undeclaredFiles: active.filter((finding) => finding.type === "spec_drift").length,
       undeclaredDependencies: active.filter((finding) => finding.type === "dependency").length,
       undeclaredNetworkDestinations: active.filter((finding) => finding.type === "network").length,
@@ -221,7 +230,9 @@ export function buildResult(ctx: RunContext): ResultSummary {
           filesWithFindings: review.filesWithFindings,
           findingIds: review.findingIds,
           approvedAt: review.approvedAt,
-          approval: review.approval
+          approval: review.approval,
+          rejectedAt: review.rejectedAt,
+          rejection: review.rejection
         }
       : undefined,
     findings: {
@@ -230,7 +241,7 @@ export function buildResult(ctx: RunContext): ResultSummary {
       resolved: runFindings.filter((finding) => finding.status === "resolved").length,
       dismissed: runFindings.filter((finding) => finding.status === "dismissed").length
     },
-    approvalStatus: !review ? "not_reviewed" : review.status === "approved" ? "approved" : review.status === "needs_human" ? "needs_human" : "pending"
+    approvalStatus: !review ? "not_reviewed" : review.status === "approved" ? "approved" : review.status === "rejected" ? "rejected" : review.status === "needs_human" ? "needs_human" : "pending"
   };
 }
 

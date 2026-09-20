@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
+import { AuthService } from "../src/auth/authService.js";
+import { signIn } from "./testAuth.js";
 import { EventCollector } from "../src/events/eventCollector.js";
 import { PolicyEngine } from "../src/policy/policyEngine.js";
 import { RuntimeManager } from "../src/runtime/runtimeManager.js";
@@ -11,7 +13,7 @@ import type { Finding, ResolutionAttempt, Review, RunRecord } from "../src/types
 
 const runPhase2 = process.env.RUN_PHASE2_E2E === "1";
 
-describe.skipIf(!runPhase2)("AgentGuard Phase 2 governance loop", () => {
+describe.skipIf(!runPhase2)("Periscope Phase 2 governance loop", () => {
   const cleanupPaths: string[] = [];
   afterAll(async () => {
     for (const cleanupPath of cleanupPaths) await rm(cleanupPath, { recursive: true, force: true });
@@ -39,11 +41,15 @@ describe.skipIf(!runPhase2)("AgentGuard Phase 2 governance loop", () => {
       image: "agentguard-runtime:latest",
       workspaceRoot: temp
     });
-    const app = await createApp({ store, events, runtime });
+    const auth = new AuthService(store);
+    const app = await createApp({ store, events, runtime, auth });
+    await app.ready();
+    const cookie = await signIn(app, auth);
 
     const createResponse = await app.inject({
       method: "POST",
       url: "/api/runs",
+      headers: { cookie },
       payload: {
         taskId: "task_oauth_phase2",
         agentId: "builder_phase2",
@@ -86,13 +92,13 @@ describe.skipIf(!runPhase2)("AgentGuard Phase 2 governance loop", () => {
     const finding = await waitForFinding(store, runId, "infra/prod.tf");
     expect(finding.evidence?.eventIds?.length).toBeGreaterThan(0);
 
-    const reviewResponse = await app.inject({ method: "POST", url: `/api/runs/${runId}/review`, payload: {} });
+    const reviewResponse = await app.inject({ method: "POST", url: `/api/runs/${runId}/review`, payload: {}, headers: { cookie } });
     expect(reviewResponse.statusCode).toBe(201);
     const review = reviewResponse.json() as Review;
     expect(review.filesReviewed).toBe(review.filesTotal);
     expect(review.filesWithFindings).toBeGreaterThan(0);
 
-    const resolveResponse = await app.inject({ method: "POST", url: `/api/findings/${finding.id}/resolve`, payload: {} });
+    const resolveResponse = await app.inject({ method: "POST", url: `/api/findings/${finding.id}/resolve`, payload: {}, headers: { cookie } });
     expect(resolveResponse.statusCode).toBe(202);
     const pendingAttempt = resolveResponse.json() as ResolutionAttempt;
     const attempt = await waitForResolution(store, pendingAttempt.id);
@@ -103,12 +109,13 @@ describe.skipIf(!runPhase2)("AgentGuard Phase 2 governance loop", () => {
     const approveResponse = await app.inject({
       method: "POST",
       url: `/api/reviews/${attempt.reviewId}/approve`,
-      payload: { actor: "phase2-test-human", reason: "Resolution verified" }
+      headers: { cookie },
+      payload: { reason: "Resolution verified" }
     });
     expect(approveResponse.statusCode).toBe(200);
     expect((approveResponse.json() as Review).status).toBe("approved");
 
-    const dashboard = (await app.inject({ method: "GET", url: "/api/dashboard/summary" })).json();
+    const dashboard = (await app.inject({ method: "GET", url: "/api/dashboard/summary", headers: { cookie } })).json();
     expect(dashboard.riskSummary).toBeTruthy();
     const resolutionRun = attempt.resolutionRunId ? await store.getRun(attempt.resolutionRunId) : undefined;
     expect(resolutionRun?.gitSummary?.files).not.toContain("infra/prod.tf");

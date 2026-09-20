@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -36,14 +36,17 @@ export async function getGitState(repoPath: string): Promise<GitSummary["before"
   };
 }
 
-export async function ensureGitBaseline(repoPath: string): Promise<void> {
-  if (await isGitRepo(repoPath)) return;
+export async function ensureGitBaseline(repoPath: string, includeIgnored = false): Promise<void> {
+  // A workspace located under another checkout must not inherit that checkout's
+  // Git root: otherwise diff collection (or branch checkout) touches the host repo.
+  const topLevel = await git(repoPath, ["rev-parse", "--show-toplevel"]).catch(() => "");
+  if (topLevel.trim() && await realpath(topLevel.trim()) === await realpath(repoPath)) return;
 
   await git(repoPath, ["init"]);
   await git(repoPath, ["config", "user.email", "agentguard@example.local"]);
-  await git(repoPath, ["config", "user.name", "AgentGuard"]);
-  await git(repoPath, ["add", "."]);
-  await git(repoPath, ["commit", "-m", "AgentGuard baseline"]);
+  await git(repoPath, ["config", "user.name", "Periscope"]);
+  await git(repoPath, ["add", ...(includeIgnored ? ["-f"] : []), "."]);
+  await git(repoPath, ["commit", "--allow-empty", "-m", "Periscope baseline"]);
 }
 
 export async function snapshotDependencies(repoPath: string): Promise<DependencySnapshot> {
@@ -64,10 +67,11 @@ export async function snapshotDependencies(repoPath: string): Promise<Dependency
 export async function collectGitSummary(
   repoPath: string,
   before: GitSummary["before"],
-  dependencyBefore: DependencySnapshot
+  dependencyBefore: DependencySnapshot,
+  includeIgnored = false
 ): Promise<GitSummary> {
   const after = await getGitState(repoPath);
-  await git(repoPath, ["add", "-N", "--", "."]).catch(() => "");
+  await git(repoPath, ["add", "-N", ...(includeIgnored ? ["-f"] : []), "--", "."]).catch(() => "");
   const diff = (await git(repoPath, ["diff", "--no-ext-diff"]).catch(() => "")).trim();
   const numstat = await git(repoPath, ["diff", "--numstat"]).catch(() => "");
   const changed = await git(repoPath, ["status", "--porcelain", "--untracked-files=all"]).catch(() => "");

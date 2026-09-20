@@ -2,7 +2,7 @@ import type { AgentEvent, BehaviorSummary, EvidenceVerification, RunRecord } fro
 
 export type CoverageLevel = EvidenceVerification | "unavailable";
 
-/** Per-channel statement of how (and whether) AgentGuard observed each kind of behavior. */
+/** Per-channel statement of how (and whether) Periscope observed each kind of behavior. */
 export interface TelemetryCoverage {
   filesystemWrites: CoverageLevel;
   filesystemReads: CoverageLevel;
@@ -39,7 +39,7 @@ export interface ObservedBehavior {
   };
   commands: Array<ObservedItem & { exitCode?: number | null }>;
   tests: Array<ObservedItem & { passed?: boolean }>;
-  dependenciesAdded: ObservedItem[];
+  dependenciesAdded: Array<ObservedItem & { file?: string }>;
   dependenciesRemoved: ObservedItem[];
   networkDestinations: Array<ObservedItem & { allowed?: boolean }>;
   secrets: ObservedItem[] | Unavailable;
@@ -111,7 +111,12 @@ export function buildObservedBehavior(run: RunRecord, events: AgentEvent[], summ
     tests: summary.tests.map((test) => ({ name: test.command, eventIds: test.eventIds, verification: verificationOf(test.eventIds), passed: test.passed })),
     dependenciesAdded: summary.dependencyChanges
       .filter((change) => change.action === "dependency_added")
-      .map((change) => ({ name: change.name, eventIds: change.eventIds, verification: verificationOf(change.eventIds) })),
+      .map((change) => ({
+        name: change.name,
+        eventIds: change.eventIds,
+        verification: verificationOf(change.eventIds),
+        file: run.gitSummary?.dependencyChanges.find((item) => item.name === change.name)?.manifest
+      })),
     dependenciesRemoved: summary.dependencyChanges
       .filter((change) => change.action === "dependency_removed")
       .map((change) => ({ name: change.name, eventIds: change.eventIds, verification: verificationOf(change.eventIds) })),

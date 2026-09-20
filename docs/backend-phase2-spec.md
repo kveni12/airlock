@@ -1,8 +1,8 @@
-# AgentGuard Backend Phase 2 Spec
+# Periscope Backend Phase 2 Spec
 
 ## Intent
 
-Phase 2 moves AgentGuard from a sandbox and telemetry backend into an agent-governance and review backend:
+Phase 2 moves Periscope from a sandbox and telemetry backend into an agent-governance and review backend:
 
 `DECLARE INTENT -> CONFIGURE ACCESS -> RUN -> OBSERVE -> COMPARE -> REVIEW -> FIND -> RESOLVE -> RE-REVIEW -> APPROVE`
 
@@ -25,7 +25,7 @@ This phase will add:
 Why these components are necessary:
 
 - Intent records what the builder claimed it would do before implementation.
-- Permissions record what AgentGuard allowed, independently from intent.
+- Permissions record what Periscope allowed, independently from intent.
 - Telemetry records what happened, independently from both intent and permissions.
 - Deterministic analysis creates explainable findings without an opaque score.
 - A separate reviewer catches defects that simple allowlists cannot express.
@@ -71,10 +71,10 @@ This phase will not:
 
 ### Canonical Concepts
 
-AgentGuard keeps these concepts separate:
+Periscope keeps these concepts separate:
 
 1. **Intent**: what the builder says it plans to do.
-2. **Permissions**: what AgentGuard allows the run to access.
+2. **Permissions**: what Periscope allows the run to access.
 3. **Observed behavior**: independently observed or explicitly agent-reported events.
 4. **Findings**: product-level concerns derived from evidence.
 5. **Review**: a bounded evaluation of a completed run and its changed files.
@@ -90,7 +90,7 @@ Intent generation has two paths:
 - caller-supplied structured intent,
 - planner-agent generation through the existing runtime and adapter abstraction.
 
-Planner mode asks the configured agent to emit a structured `agent.intent` record. The planner runs against a disposable repository copy, and its workspace is discarded. Returned data is validated before it can be attached to a builder run. Missing or malformed output produces `runtime.intent_generation_failed`; AgentGuard does not silently substitute an empty intent.
+Planner mode asks the configured agent to emit a structured `agent.intent` record. The planner runs against a disposable repository copy, and its workspace is discarded. Returned data is validated before it can be attached to a builder run. Missing or malformed output produces `runtime.intent_generation_failed`; Periscope does not silently substitute an empty intent.
 
 ### Behavior Analyzer
 
@@ -163,7 +163,7 @@ After the resolver run:
 
 ### Approval
 
-`POST /api/reviews/:id/approve` records a human approval timestamp, actor/reason when supplied, and a governance event. Approval means AgentGuard considers the reviewed run acceptable for later application or merge. It does not copy files, commit, push, or merge.
+`POST /api/reviews/:id/approve` records a human approval timestamp, actor/reason when supplied, and a governance event. Approval means Periscope considers the reviewed run acceptable for later application or merge. It does not copy files, commit, push, or merge.
 
 ### Dashboard Views
 
@@ -444,7 +444,7 @@ The deterministic test uses the existing runtime abstractions and a controlled r
 ### Changes From Original Plan
 
 - The default reviewer is deterministic rather than a model-backed agent. It is still separate from the builder and receives only an immutable bounded data object, so it cannot modify the builder workspace.
-- Externally produced reviewer JSON can be validated and persisted through the reviewer abstraction, but AgentGuard does not yet launch a maintained reviewer-model VM itself.
+- Externally produced reviewer JSON can be validated and persisted through the reviewer abstraction, but Periscope does not yet launch a maintained reviewer-model VM itself.
 - No read-only filesystem snapshot is passed to the default reviewer because it receives no filesystem path at all. This is stricter for mutation prevention, but it limits deep source inspection to the bounded diff supplied in `ReviewerInput`.
 - Resolution endpoints return `202` and run asynchronously. Clients use `GET /api/resolutions/:id` or run SSE to follow progress.
 - Findings for corrective deletion can still be emitted as raw policy history during a resolver run. Once final-state verification succeeds, related findings transition to resolved; their events and original evidence remain intact.
