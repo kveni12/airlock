@@ -20,6 +20,8 @@ import { ReviewService } from "./review/reviewService.js";
 import { ResolutionService, type ResolveFindingRequest } from "./resolution/resolutionService.js";
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
+import { RunManifestService, manifestToMarkdown } from "./manifest/runManifestService.js";
+import { PullRequestError, PullRequestService } from "./manifest/pullRequestService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
 import { listRepoDirectory } from "./repo/repoTree.js";
 import { listHostFolders, nativeFolderDialogAvailable, pickHostFolder } from "./repo/hostFolders.js";
@@ -39,6 +41,8 @@ export interface AppContext {
   resolutions: ResolutionService;
   summaries: SummaryService;
   insights: RunInsightService;
+  manifests: RunManifestService;
+  pullRequests: PullRequestService;
 }
 
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
@@ -67,6 +71,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const resolutions = context?.resolutions ?? new ResolutionService(store, events, runtime, findings, analysis, reviews);
   const summaries = context?.summaries ?? new SummaryService(store);
   const insights = context?.insights ?? new RunInsightService(store);
+  const manifests = context?.manifests ?? new RunManifestService(store, insights);
+  const pullRequests = context?.pullRequests ?? new PullRequestService(store, manifests, events);
 
   events.subscribeAll((event) => {
     if (event.category !== "runtime" || event.action !== "completed") return;
@@ -260,6 +266,29 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       files: run.gitSummary?.files ?? [],
       diff: run.gitSummary?.diff ?? null
     };
+  });
+
+  app.get("/api/runs/:id/manifest", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { format } = request.query as { format?: string };
+    if (!(await store.getRun(id))) return reply.code(404).send({ error: "Run not found" });
+    const manifest = await manifests.build(id);
+    if (format === "markdown" || format === "md") {
+      return reply.type("text/markdown; charset=utf-8").send(manifestToMarkdown(manifest));
+    }
+    return manifest;
+  });
+
+  app.post("/api/runs/:id/pull-request", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { branch?: string; push?: boolean; remote?: string; title?: string };
+    try {
+      const pullRequest = await pullRequests.createFromApprovedRun(id, { ...body, actor: actorFor(request) });
+      return reply.code(201).send(pullRequest);
+    } catch (error: unknown) {
+      if (error instanceof PullRequestError) return reply.code(error.statusCode).send({ error: error.message });
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
   });
 
   app.post("/api/requests", async (request, reply) => {

@@ -265,6 +265,20 @@ export interface RunRecord {
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
   projectId?: string;
+  /** Branch/PR created from this run's reviewed diff after human approval. */
+  pullRequest?: RunPullRequest;
+}
+
+export interface RunPullRequest {
+  branch: string;
+  commit: string;
+  baseHead?: string | null;
+  pushed: boolean;
+  remote?: string;
+  url?: string;
+  compareUrl?: string;
+  createdAt: string;
+  createdBy?: string;
 }
 
 export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
