@@ -3,19 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bot, FolderGit2, GitBranch, LayoutDashboard, LogOut, MessageSquarePlus, ScanSearch } from "lucide-react";
+import { FolderGit2, GitBranch, LogOut } from "lucide-react";
 import { AuthGate, useAuth } from "./auth-gate";
 import { RuntimeIndicator } from "./runtime-indicator";
 import { API_BASE_URL } from "@/lib/api";
 
 const navigation = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderGit2 },
-  { href: "/runs", label: "Runs", icon: GitBranch },
-  { href: "/requests", label: "New request", icon: MessageSquarePlus },
-  { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/reviews", label: "Reviews", icon: ScanSearch },
-  { href: "/activity", label: "Activity", icon: Activity }
+  { href: "/runs", label: "Runs", icon: GitBranch }
 ];
 
 const AUTH_DISABLED = process.env.NEXT_PUBLIC_PERISCOPE_AUTH_DISABLED === "1";
@@ -30,7 +25,7 @@ function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   return <div className="min-h-screen md:grid md:grid-cols-[240px_minmax(0,1fr)]">
     <aside className="border-b border-white/10 bg-[#182a33] text-white md:sticky md:top-0 md:flex md:h-screen md:flex-col md:border-b-0 md:border-r">
       <div className="flex items-center justify-between px-4 py-4 md:px-5 md:py-6">
-        <Link href="/overview" className="flex items-center gap-3 font-semibold tracking-tight"><span className="grid size-9 place-items-center rounded-lg bg-[#f6f2ec]"><Image src="/periscope-mark.png" alt="" width={28} height={28} priority /></span><span className="tracking-[.18em] uppercase text-sm">Periscope</span></Link>
+        <Link href="/projects" className="flex items-center gap-3 font-semibold tracking-tight"><span className="grid size-9 place-items-center rounded-lg bg-[#f6f2ec]"><Image src="/periscope-mark.png" alt="" width={28} height={28} priority /></span><span className="tracking-[.18em] uppercase text-sm">Periscope</span></Link>
         <span className="rounded-full border border-white/15 px-2 py-1 text-[10px] uppercase tracking-wider text-white/60">MVP</span>
       </div>
       <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:px-3 md:pb-0">
