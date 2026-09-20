@@ -7,6 +7,7 @@ import { approveIntent, approveReview, createPullRequestFromRun, createReview, g
 import type { AgentIntent, AlignmentSegment, Finding, HumanRequest, ObservedBehavior, ObservedItem, PermissionSnapshot, RequestAnalysis, ResultSummary, RunDetail as RunDetailModel, TimelineEntry } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { groupFindings, violatedResources } from "@/lib/findings";
+import { AmendmentsSection } from "./amendments";
 import { FindingGroups } from "./finding-groups";
 import { ActionButton, AlignmentBadge, Chips, Empty, ErrorBanner, KeyValue, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatDateTime, formatTime, verificationHelp } from "./ui";
 
@@ -66,6 +67,7 @@ export function RunDetail({ runId }: { runId: string }) {
       <RequestSection request={d.request} analysis={d.requestAnalysis} />
       <Arrow />
       <IntentSection intent={d.intent} onChanged={refreshAll} />
+      <AmendmentsSection runId={run.id} onChanged={refreshAll} />
       <Arrow />
       <PermissionsSection permissions={d.permissions} />
       <Arrow />
@@ -128,7 +130,7 @@ export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onC
       <KeyValue label="Expected commands"><Chips items={intent.expectedCommands} /></KeyValue>
       <KeyValue label="Expected dependencies"><Chips items={intent.expectedDependencies} /></KeyValue>
       <KeyValue label="Expected network"><Chips items={intent.expectedNetwork} /></KeyValue>
-      <KeyValue label="Expected secrets"><Chips items={intent.expectedSecrets} /></KeyValue>
+      <KeyValue label="Expected keys"><Chips items={intent.expectedSecrets} /></KeyValue>
       <KeyValue label="Expected MCP / tools"><Chips items={[...intent.expectedMcpServers, ...intent.expectedTools]} /></KeyValue>
       <KeyValue label="Constraints"><Chips items={intent.constraints} mono={false} /></KeyValue>
       {intent.assumptions.length > 0 && <KeyValue label="Assumptions"><Chips items={intent.assumptions} mono={false} /></KeyValue>}
@@ -140,9 +142,9 @@ export function IntentSection({ intent, onChanged }: { intent?: AgentIntent; onC
 export function PermissionsSection({ permissions }: { permissions?: PermissionSnapshot }) {
   return <Section eyebrow="3 · Permissions" title="What the agent was allowed to access">
     {!permissions ? <p className="text-sm text-[#64717c]">No permission snapshot recorded.</p> : <dl className="space-y-3">
-      <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "RW" : "R"}`)} /></KeyValue>
+      <KeyValue label="Filesystem"><Chips items={(permissions.filesystem ?? []).map((p) => `${p.path} · ${p.access === "read_write" ? "can change" : p.access === "read" ? "read only" : "no access"}`)} /></KeyValue>
       <KeyValue label="Network"><Chips items={permissions.network ?? []} /></KeyValue>
-      <KeyValue label="Secrets"><Chips items={permissions.secrets ?? []} /></KeyValue>
+      <KeyValue label="Keys"><Chips items={permissions.secrets ?? []} /></KeyValue>
       <KeyValue label="MCP servers"><Chips items={(permissions.mcpServers ?? []).map((s) => typeof s === "string" ? s : s.name)} /></KeyValue>
       <KeyValue label="Tools"><Chips items={permissions.tools ?? []} /></KeyValue>
     </dl>}
@@ -168,7 +170,7 @@ export function BehaviorSection({ behavior, intent, violations = new Set<string>
       <KeyValue label="Tests"><ObservedList items={behavior.tests} state={(i) => i.passed === undefined ? "unknown" : i.passed ? "ok" : "failed"} suffix={(i) => i.passed === undefined ? "result unknown" : i.passed ? "passed" : "failed"} /></KeyValue>
       <KeyValue label="Dependencies added"><ObservedList items={behavior.dependenciesAdded} state={(i) => violated(i.name) ? "violation" : intent && !deps.has(i.name) ? "undeclared" : "ok"} /></KeyValue>
       <KeyValue label="Network destinations"><ObservedList items={behavior.networkDestinations} state={(i) => violated(i.name) || i.allowed === false ? "violation" : intent && !net.has(i.name) ? "undeclared" : "ok"} suffix={(i) => i.allowed === false ? "blocked by policy" : undefined} /></KeyValue>
-      <KeyValue label="Secrets">{secretsUnavailable ? <UnavailableNote reason={(behavior.secrets as { reason: string }).reason} /> : <ObservedList items={behavior.secrets as ObservedItem[]} />}</KeyValue>
+      <KeyValue label="Keys">{secretsUnavailable ? <UnavailableNote reason={(behavior.secrets as { reason: string }).reason} /> : <ObservedList items={behavior.secrets as ObservedItem[]} />}</KeyValue>
       <KeyValue label="MCP calls"><ObservedList items={behavior.mcpCalls} suffix={(i) => i.server} /></KeyValue>
       <KeyValue label="Tools"><ObservedList items={behavior.tools} /></KeyValue>
     </dl>

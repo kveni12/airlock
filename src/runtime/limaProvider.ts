@@ -27,7 +27,7 @@ export class LimaProvider implements SandboxProvider {
   constructor(private readonly options: LimaProviderOptions = {}) {}
 
   filesystemScope(mounts: WorkspaceMounts): "enforced" | "observed" {
-    return mounts.root === "ro" && mounts.writable.length === 0 ? "enforced" : "observed";
+    return mounts.root === "ro" && mounts.writable.length === 0 && mounts.maskedFiles.length === 0 && mounts.maskedDirectories.length === 0 ? "enforced" : "observed";
   }
 
   async isBaseAvailable(baseVm: string): Promise<boolean> {
@@ -213,5 +213,5 @@ async function runCommand(
 
 /** `<host path>` mounts read-only, `<host path>:w` writable; a partial overlay widens to writable. */
 export function limaMountSpec(workspacePath: string, mounts: WorkspaceMounts): string {
-  return mounts.root === "ro" && mounts.writable.length === 0 ? workspacePath : `${workspacePath}:w`;
+  return mounts.root !== "rw" && mounts.writable.length === 0 ? workspacePath : `${workspacePath}:w`;
 }

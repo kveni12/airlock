@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
+import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingClassification, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
 import { openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
@@ -101,15 +101,20 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   }
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  const google = resolveGoogleConfig();
-  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google, openSignup: openSignupEnabled() });
-  if (google) {
-    app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
-  }
-
-  const setupToken = await auth.issueSetupToken();
-  if (setupToken) {
-    app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+  const authDisabled = process.env.PERISCOPE_AUTH_DISABLED === "1";
+  if (!authDisabled) {
+    const google = resolveGoogleConfig();
+    await registerAuth(app, auth, {
+      allowedOrigins,
+      cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
+      google,
+      openSignup: openSignupEnabled()
+    });
+    if (google) app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
+    const setupToken = await auth.issueSetupToken();
+    if (setupToken) {
+      app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+    }
   }
 
   app.get("/health", async () => ({ ok: true }));
@@ -589,7 +594,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
         severity: query.severity as EventSeverity | undefined,
         runId: query.runId,
         taskId: query.taskId,
-        source: query.source as FindingSource | undefined
+        source: query.source as FindingSource | undefined,
+        classification: query.classification as FindingClassification | undefined
       })
     };
   });

@@ -5,7 +5,7 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const storePath = process.env.AGENTGUARD_STORE_PATH ?? path.join(root, "data", "agentguard-store.json");
-const env = { ...process.env, AGENTGUARD_STORE_PATH: storePath };
+const env = { ...process.env, AGENTGUARD_STORE_PATH: storePath, PERISCOPE_AUTH_DISABLED: process.env.PERISCOPE_AUTH_DISABLED ?? "1", NEXT_PUBLIC_PERISCOPE_AUTH_DISABLED: process.env.NEXT_PUBLIC_PERISCOPE_AUTH_DISABLED ?? "1" };
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const run = (args, cwd, name) =>

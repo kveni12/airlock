@@ -16,7 +16,10 @@ const input = {
   agentKind: "claude_code",
   runtime: "docker",
   scope: {
-    folders: [{ path: "/workspace", access: "read" }, { path: "/workspace/src/billing", access: "read_write" }],
+    folders: [
+      { path: "/workspace", access: "none" },
+      { path: "/workspace/src/billing", access: "read_write" }
+    ],
     hosts: ["api.anthropic.com"],
     secrets: ["ANTHROPIC_API_KEY"],
     mcpServers: ["github"],
@@ -54,7 +57,7 @@ describe("ProjectService", () => {
     await expect(service.create({ repoPath: "/x" })).rejects.toThrow(/name/);
     await expect(service.create({ name: "x" })).rejects.toThrow(/repoPath/);
     await expect(service.create({ ...input, runtime: "firecracker" })).rejects.toThrow(/runtime/);
-    await expect(service.create({ ...input, scope: { ...input.scope, folders: [{ path: "src", access: "rw" }] } })).rejects.toThrow(/read or read_write/);
+    await expect(service.create({ ...input, scope: { ...input.scope, folders: [{ path: "src", access: "rw" }] } })).rejects.toThrow(/none, read, or read_write/);
     await expect(service.create({ ...input, scope: { ...input.scope, hosts: "api.example.com" } })).rejects.toThrow(/scope.hosts/);
     await expect(service.create({ ...input, scope: { ...input.scope, secrets: ["my-key"] } })).rejects.toThrow(/environment variable/);
   });

@@ -87,7 +87,9 @@ function validateScope(value: unknown): ProjectScope {
 
 function validateFolder(value: unknown): FilePermission {
   if (!isRecord(value) || typeof value.path !== "string" || !value.path.trim()) throw new Error("scope.folders entries need a path");
-  if (value.access !== "read" && value.access !== "read_write") throw new Error(`scope.folders: access for ${value.path} must be read or read_write`);
+  if (value.access !== "none" && value.access !== "read" && value.access !== "read_write") {
+    throw new Error(`scope.folders: access for ${value.path} must be none, read, or read_write`);
+  }
   return { path: value.path.trim(), access: value.access };
 }
 

@@ -8,6 +8,7 @@ import type { AgentEvent, AgentIntent, AlignmentStatus, TimelineEntry } from "@/
 import { buildTree, parseUnifiedDiff, type FileDiff, type TreeNode } from "@/lib/diff";
 import { subscribeToRunEvents } from "@/lib/event-stream";
 import { useResource } from "@/lib/use-resource";
+import { AmendmentsSection } from "./amendments";
 import { FindingCard } from "./finding-card";
 import { AlignmentTile, BehaviorSection, IntentSection, PermissionsSection, RequestSection, ResultSection, Timeline, actorStyle } from "./run-detail";
 import { ActionButton, AlignmentBadge, ErrorBanner, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatTime } from "./ui";
@@ -114,6 +115,7 @@ export function Workbench({ runId }: { runId: string }) {
             </div>
             <RequestSection request={d.request} analysis={d.requestAnalysis} />
             <IntentSection intent={d.intent} onChanged={refreshAll} />
+            <AmendmentsSection runId={run.id} onChanged={refreshAll} />
             <PermissionsSection permissions={d.permissions} />
             <OutOfScopeSection events={allEvents} onFile={(p) => marks.has(p) && setSelectedFile(p)} />
             <BehaviorSection behavior={d.behaviorSummary} intent={d.intent} />
