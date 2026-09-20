@@ -1,13 +1,18 @@
 import cors from "@fastify/cors";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
+import { AuthService } from "./auth/authService.js";
+import { registerAuth } from "./auth/authRoutes.js";
+import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { IntentAmendmentService } from "./intent/intentAmendmentService.js";
 import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
+import { ProjectService } from "./projects/projectService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
 import { BehaviorAnalysisService } from "./analysis/behaviorAnalyzer.js";
@@ -16,13 +21,16 @@ import { ResolutionService, type ResolveFindingRequest } from "./resolution/reso
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
+import { listRepoDirectory } from "./repo/repoTree.js";
 
 export interface AppContext {
   store: JsonStore;
+  auth: AuthService;
   events: EventCollector;
   runtime: RuntimeManager;
   requests: RequestService;
   intents: IntentService;
+  amendments: IntentAmendmentService;
   intentAlignment: IntentAlignmentService;
   findings: FindingService;
   analysis: BehaviorAnalysisService;
@@ -35,6 +43,7 @@ export interface AppContext {
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
   const store = context?.store ?? new JsonStore();
   await store.init();
+  const auth = context?.auth ?? new AuthService(store);
 
   const policy = new PolicyEngine(async (runId) => {
     const [run, permissions] = await Promise.all([store.getRun(runId), store.getPermissions(runId)]);
@@ -44,8 +53,12 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   const events = context?.events ?? new EventCollector(store, policy);
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
+  const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
+  const projects = new ProjectService(store);
   const intents = context?.intents ?? new IntentService(store);
+  const amendments = context?.amendments ?? new IntentAmendmentService(store, events, intents);
+  runtime.attachAmendments(amendments);
   const findings = context?.findings ?? new FindingService(store, events);
   const intentAlignment = context?.intentAlignment ?? new IntentAlignmentService(store, intents, findings);
   const analysis = context?.analysis ?? new BehaviorAnalysisService(store, findings);
@@ -76,11 +89,42 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     intent.requestId ? (await intentAlignment.analyze(intent.id)).intent : intent;
 
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true });
+  if (recovered && (recovered.failedRuns.length || Object.values(recovered.reaped).some((ids) => ids.length))) {
+    app.log.warn({ recovered }, "Recovered sandboxes left behind by a previous backend process");
+  }
+  const allowedOrigins = resolveAllowedOrigins();
+  await app.register(cors, { origin: allowedOrigins, credentials: true });
+  const google = resolveGoogleConfig();
+  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google });
+  if (google) {
+    app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
+  }
+
+  const setupToken = await auth.issueSetupToken();
+  if (setupToken) {
+    app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+  }
 
   app.get("/health", async () => ({ ok: true }));
 
   app.get("/api/agent-profiles", async () => ({ profiles: await runtime.getAgentProfiles() }));
+
+  app.get("/api/runtime/status", async () => runtime.setup.status());
+
+  app.post("/api/runtime/setup", async (request, reply) => {
+    const body = request.body as { provider?: string; agent?: string } | undefined;
+    if (body?.provider === "docker") return reply.code(202).send(runtime.setup.startSetup({ provider: "docker" }));
+    if (body?.provider === "lima") return reply.code(202).send(runtime.setup.startSetup({ provider: "lima", agent: body.agent }));
+    return reply.code(400).send({ error: "provider must be 'docker' or 'lima'" });
+  });
+
+  app.get("/api/runtime/setup", async () => ({ jobs: runtime.setup.listJobs() }));
+
+  app.get("/api/runtime/setup/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const job = runtime.setup.getJob(id);
+    return job ?? reply.code(404).send({ error: `Setup job ${id} not found` });
+  });
 
   app.post("/api/runs", async (request, reply) => {
     try {
@@ -173,6 +217,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     return permissions;
   });
 
+  app.get("/api/repo-tree", async (request, reply) => {
+    const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
+    if (!repoPath) return reply.code(400).send({ error: "path is required" });
+    try {
+      return await listRepoDirectory(repoPath, dir ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get("/api/runs/:id/files", async (request, reply) => {
     const { id } = request.params as { id: string };
     const run = await store.getRun(id);
@@ -187,7 +241,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/requests", async (request, reply) => {
     try {
-      const created = await requests.create(validateRequestDraft(request.body));
+      const created = await requests.create({ ...validateRequestDraft(request.body), createdBy: actorFor(request) });
       return reply.code(201).send(created);
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
@@ -201,6 +255,40 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
+  });
+
+  app.get("/api/projects", async () => projects.list());
+
+  app.post("/api/projects", async (request, reply) => {
+    try {
+      return reply.code(201).send(await projects.create(request.body));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/projects/:id", async (request, reply) => {
+    const project = await projects.get((request.params as { id: string }).id);
+    return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.put("/api/projects/:id", async (request, reply) => {
+    try {
+      const project = await projects.update((request.params as { id: string }).id, request.body);
+      return project ?? reply.code(404).send({ error: "Project not found" });
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/:id/open", async (request, reply) => {
+    const project = await projects.open((request.params as { id: string }).id);
+    return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.delete("/api/projects/:id", async (request, reply) => {
+    const removed = await projects.delete((request.params as { id: string }).id);
+    return removed ? reply.code(204).send() : reply.code(404).send({ error: "Project not found" });
   });
 
   app.get("/api/request-rules", async () => requests.getRules());
@@ -365,8 +453,48 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/intents/:id/approve", async (request, reply) => {
     try {
-      const body = (request.body ?? {}) as { actor?: string; reason?: string };
+      const body = decisionBody(request);
       return await intents.approve((request.params as { id: string }).id, body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/intent-amendments", async (request) => {
+    const { runId } = request.query as { runId?: string };
+    return { amendments: await amendments.list(runId) };
+  });
+
+  app.get("/api/intent-amendments/:id", async (request, reply) => {
+    const amendment = await amendments.get((request.params as { id: string }).id);
+    if (!amendment) return reply.code(404).send({ error: "Amendment not found" });
+    return amendment;
+  });
+
+  app.get("/api/runs/:id/intent-amendments", async (request) => {
+    return { amendments: await amendments.list((request.params as { id: string }).id) };
+  });
+
+  /** Agent-side request (also reachable from inside the sandbox via http://periscope.internal/amendments). */
+  app.post("/api/runs/:id/intent-amendments", async (request, reply) => {
+    try {
+      return reply.code(201).send(await amendments.request((request.params as { id: string }).id, request.body, "control_channel"));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/approve", async (request, reply) => {
+    try {
+      return await amendments.approve((request.params as { id: string }).id, decisionBody(request));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/deny", async (request, reply) => {
+    try {
+      return await amendments.deny((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -374,8 +502,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/intents/:id/reject", async (request, reply) => {
     try {
-      const body = (request.body ?? {}) as { actor?: string; reason?: string };
-      return await intents.reject((request.params as { id: string }).id, body);
+      return await intents.reject((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -427,7 +554,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/findings/:id/dismiss", async (request, reply) => {
     try {
-      return await findings.dismiss((request.params as { id: string }).id, (request.body ?? {}) as { reason?: string; actor?: string });
+      return await findings.dismiss((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -479,10 +606,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/reviews/:id/approve", async (request, reply) => {
     try {
-      return await reviews.approve(
-        (request.params as { id: string }).id,
-        (request.body ?? {}) as { actor?: string; reason?: string }
-      );
+      return await reviews.approve((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -490,10 +614,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
   app.post("/api/reviews/:id/reject", async (request, reply) => {
     try {
-      return await reviews.reject(
-        (request.params as { id: string }).id,
-        (request.body ?? {}) as { actor?: string; reason?: string }
-      );
+      return await reviews.reject((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -519,7 +640,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "X-Accel-Buffering": "no"
+      "X-Accel-Buffering": "no",
+      ...corsHeadersFor(request.headers.origin, allowedOrigins)
     });
 
     for (const event of await events.getEvents(id)) {
@@ -540,6 +662,32 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The authenticated operator, so a recorded governance decision names a real account rather than a caller-supplied string. */
+function actorFor(request: FastifyRequest): string | undefined {
+  return request.user ? `${request.user.displayName} <${request.user.email}>` : undefined;
+}
+
+function decisionBody(request: FastifyRequest): { actor?: string; reason?: string } {
+  const body = (request.body ?? {}) as { actor?: string; reason?: string };
+  return { reason: body.reason, actor: actorFor(request) ?? body.actor };
+}
+
+function resolveAllowedOrigins(): string[] {
+  const configured = process.env.PERISCOPE_ALLOWED_ORIGINS;
+  if (!configured) return ["http://localhost:3001", "http://127.0.0.1:3001"];
+  return configured.split(",").map((origin) => origin.trim()).filter(Boolean);
+}
+
+/** Hijacked responses (the SSE stream) bypass the CORS plugin and must set these themselves. */
+export function corsHeadersFor(origin: string | undefined, allowedOrigins: string[]): Record<string, string> {
+  if (!origin || !allowedOrigins.includes(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin"
+  };
 }
 
 function requiredBodyString(value: unknown, name: string): string {
@@ -570,6 +718,7 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
     cleanupWorkspace: true,
     runtime: body.runtime as CreateRunRequest["runtime"],
     requestId,
+    projectId: typeof body.projectId === "string" ? body.projectId : undefined,
     purpose: "planner"
   };
 }

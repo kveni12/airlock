@@ -20,7 +20,25 @@ npm install
 npm run dev:all
 ```
 
-Then open `http://localhost:3001`. `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
+Then open `http://localhost:3001`. The first time you do, the UI asks you to create an administrator account and paste the one-time setup token the backend printed to its log at startup (`Periscope has no operator account yet…`). Every later visit asks you to sign in; requests, intent decisions, dismissals and review approvals are recorded against that account rather than a caller-supplied name.
+
+`dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
+
+### Share it publicly (one Cloudflare quick tunnel)
+
+```bash
+npm run dev:public                       # browse-anywhere demo
+GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: periscope)
+PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
+```
+
+`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host repo browsing, shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
+
+### Projects
+
+**Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
+
+`npm run demo:projects` seeds three sample projects over the bundled `fixtures/*` repos (idempotent; `AGENTGUARD_RUNTIME_PROVIDER` picks the runtime, default `docker`).
 
 ### Run a real agent on your own repository
 
@@ -31,13 +49,45 @@ In the UI, open **New request**, record your prompt, then under **Agent & worksp
 
 **Devin** runs in its own cloud VM, so the `Devin` agent uses a bridge (`runtime/devin-agentguard-bridge.sh`) that drives a session through the [Devin API](https://docs.devin.ai/api-reference) with `DEVIN_API_KEY`. The planner run asks Devin for the intent as structured output; the builder run asks Devin to push its work to branch `agentguard/<run id>` on the repo's `origin` (Devin needs push access to that remote), then fetches the branch and applies the diff to the workspace so the normal git/filesystem telemetry, intent comparison and review apply to the result. Devin's chat messages are relayed as agent-reported evidence; what Devin does inside its own VM is not observed. Optional: `DEVIN_API_URL`, `DEVIN_SNAPSHOT_ID`, `DEVIN_MAX_ACU`, `DEVIN_POLL_INTERVAL_MS`; set `DEVIN_BRIDGE_COMMAND` to replace the API client with your own command.
 
-Secrets are listed by env var name (e.g. `ANTHROPIC_API_KEY`) and resolved from the backend process environment, so export them before `npm run dev:all`. The planner phase runs the agent against a read-only copy with instructions to answer with the structured intent as JSON; the builder phase runs it with your prompt verbatim and compares what it does against that intent.
+Secrets are listed by env var name (e.g. `ANTHROPIC_API_KEY`) and resolved from the backend process environment, so export them before `npm run dev:all`. The Docker runtime image ships the Claude Code, Codex and OpenCode CLIs (no keys baked in; only granted secrets are injected at container start), and picking an agent in the UI pre-fills its API host(s) in the network allowlist. Codex is logged in with the granted `OPENAI_API_KEY` at container start (`codex login --with-api-key`, piped from the environment). If your Anthropic key is org-level rather than workspace-scoped, export `ANTHROPIC_WORKSPACE_ID=wrkspc_…` on the backend and Claude Code runs send the matching `anthropic-workspace-id` header. The planner phase runs the agent against a read-only copy with instructions to answer with the structured intent as JSON; the builder phase runs it with your prompt verbatim and compares what it does against that intent.
 
 ## Install
 
 ```bash
 npm install
 ```
+
+## Accounts and Sessions
+
+Every route except `/health` and `/api/auth/*` requires a session cookie.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/auth/status` | Whether the instance still needs its first administrator, and whether Google sign-in is available |
+| `POST /api/auth/bootstrap` | Create the first administrator with the one-time setup token from the backend log |
+| `POST /api/auth/login` | Sign in and receive the `periscope_session` cookie |
+| `POST /api/auth/logout` | Invalidate the session |
+| `GET /api/auth/me` | The signed-in operator |
+| `GET`/`POST /api/auth/users` | List/create operators (administrators only) |
+| `GET /api/auth/google/start` | Begin Google sign-in (browser redirect) |
+| `GET /api/auth/google/callback` | Google's redirect back; issues the session cookie |
+
+Passwords are at least 12 characters and stored as salted scrypt hashes. Sessions live in backend memory, so restarting the backend signs everyone out. Configuration:
+
+- `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
+- `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
+
+### Sign in with Google
+
+Optional. Create an OAuth client (Google Cloud console → APIs & Services → Credentials → OAuth client ID → Web application) with the authorized redirect URI `<your Periscope URL>/api/auth/google/callback`, then:
+
+- `PERISCOPE_GOOGLE_CLIENT_ID`, `PERISCOPE_GOOGLE_CLIENT_SECRET`: the OAuth client. Both are required; without them the login page shows only email and password.
+- `PERISCOPE_PUBLIC_URL`: the origin Periscope is served from, used to derive the redirect URI. Override it directly with `PERISCOPE_GOOGLE_REDIRECT_URI` if they differ.
+- `PERISCOPE_GOOGLE_ALLOWED_EMAILS`, `PERISCOPE_GOOGLE_ALLOWED_DOMAINS`: comma-separated addresses/domains that may create an account on first sign-in. **Both empty (the default) means no self-provisioning**: a Google account can only sign in to an operator an administrator already created, matched by email. This matters because any session can start agent runs on the host.
+
+Google accounts never get a password; an account that has both keeps working either way. The flow uses PKCE and single-use state, and the identity token is read from Google's token response over TLS rather than accepted from the browser.
+
+Scripted clients sign in and reuse the cookie, e.g. `curl -c jar -X POST localhost:3000/api/auth/login -H 'content-type: application/json' -d '{"email":"you@example.com","password":"…"}'` then `curl -b jar localhost:3000/api/runs`.
 
 ## Set Up VM Runtime
 
@@ -369,6 +419,20 @@ AGENTGUARD_EVENT {"category":"mcp","action":"tool_call","resource":"github/creat
 
 Allowed self-reported categories are `agent`, `process`, and `mcp`. Filesystem, network, policy, secret, and runtime lifecycle events remain backend-owned so an agent cannot claim that its own behavior was allowed or independently observed.
 
+### Intent amendments (asking instead of drifting)
+
+A builder that discovers it must go beyond its approved plan requests an **intent amendment** and waits; Periscope marks the run `paused` and the reviewer approves or denies it (`POST /api/intent-amendments/:id/approve|deny`, actor recorded). Approval creates a revised intent that supersedes the previous one (additive: extra planned actions, files, dependencies, commands, hosts, MCP servers, tools, secrets), merges the requested grants into the run's permissions, and reports which grants were applied live (`network` — the proxy allowlist widens immediately) versus deferred to the next run (`filesystem`, `secrets` — Docker mounts and injected env are fixed at container creation). Denial changes nothing. Every step is an event (`agent.intent_amendment_requested/approved/denied`) correlated by amendment id and linked to the previous and resulting intent.
+
+Agents ask through the sandbox control channel — a virtual host on the run's HTTP proxy, so no extra network access is needed:
+
+```text
+POST http://periscope.internal/amendments
+{"reason":"why","changes":{"expectedFiles":["infra/prod.tf"],"plannedActions":["..."]},"permissions":{"filesystem":[{"path":"infra","access":"read_write"}],"network":["registry.terraform.io"]}}
+GET  http://periscope.internal/amendments/<id>?wait=60      # long-poll until status is approved | denied
+```
+
+or, without HTTP, by printing `AGENTGUARD_EVENT {"category":"agent","action":"intent_amendment","metadata":{reason,changes,permissions}}`. Real agents receive these instructions appended to their builder prompt. `reason` and at least one change or grant are required.
+
 Every output record is line- and size-bounded, ordered per run, sent through centralized secret redaction, persisted, and streamed over SSE. Unknown output becomes `process.output`; malformed explicit protocol messages generate `runtime.telemetry_degraded` rather than disappearing silently.
 
 Representative live sequence:
@@ -500,11 +564,27 @@ npm run phase2:test
 
 This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostile code.
 
-- Filesystem path permissions are stored and evaluated as policy warnings; they are not complete kernel-level enforcement.
+### What each runtime enforces
+
+| | `docker` | `lima` | `process` |
+| --- | --- | --- | --- |
+| Rest of the machine hidden | yes (only the workspace copy is mounted) | yes | **no** |
+| Planner (read-only) workspace | kernel-enforced (`/workspace:ro`) | kernel-enforced (read-only mount) | observed only |
+| Per-folder `read` vs `read_write` | kernel-enforced: root bound `:ro`, each `read_write` folder layered as a writable bind; writes elsewhere fail with `EROFS` and are recorded as `filesystem.write_prevented` | **observed only** — Lima mounts cannot overlap, so a partial grant widens the whole workspace to writable and out-of-scope writes are flagged afterwards | observed only (flagged via git diff) |
+| Network allowlist | enforced: empty list = no internet; the container sits on an internal bridge whose only egress is the Periscope proxy, so traffic that ignores `HTTP(S)_PROXY` is dropped | proxy enforced for tools honoring `HTTP(S)_PROXY`; direct sockets are not blocked | same as lima |
+| Secrets | only granted env var names are injected | same | same — the agent gets a clean environment (`PATH`, locale/terminal vars, runtime metadata, granted secrets), not the host `process.env` |
+| Container/VM privileges | unprivileged, runs as the host user that owns the workspace copy (not root), `CapDrop: ALL`, `no-new-privileges`; remounting `/workspace` fails | Lima default (unprivileged guest user) | host user, no isolation |
+
+### Sandbox lifecycle
+
+Every run gets its own container (or VM) plus, on Docker, its own internal network; both are labelled `agentguard.run=<run id>` and removed as soon as the run ends, is stopped, or fails to start. Nothing stays running while a plan waits for approval — the planner container exits when it has declared its intent and the builder is only created after approval. If the backend itself dies mid-run, the next start calls `RuntimeManager.recover()`: it marks the stranded runs `failed`, removes any container/network/VM whose label or name maps to a run that is no longer active, and deletes the temp workspace of runs that asked for cleanup.
+
+Grants on single files or globs widen to the containing directory for mount purposes; the policy engine still evaluates the exact grant afterwards.
+
 - Filesystem reads are not traced.
 - Child processes are visible when the agent's structured output reports them; kernel-level tracing of every subprocess is not implemented.
 - VM isolation is materially stronger than a container boundary, but this is not yet a hardened multi-tenant sandbox.
-- Network observability depends on tools honoring `HTTP_PROXY`/`HTTPS_PROXY`; direct socket traffic is not blocked.
+- Outside Docker, network observability depends on tools honoring `HTTP_PROXY`/`HTTPS_PROXY`; direct socket traffic is not blocked there.
 - HTTPS bodies are not decrypted or inspected.
 - The network proxy records destination host/port only.
 - Generic MCP proxy enforcement is not implemented yet. MCP records emitted by supported JSONL adapters or the Periscope event protocol are observable but self-reported.
@@ -513,6 +593,7 @@ This is a hackathon/MVP sandbox, not a hardened environment for arbitrary hostil
 - Vendor output formats can change; unknown records safely fall back to sanitized `process.output` instead of being discarded.
 - Devin runs remotely by design; Periscope can only observe actions and changes that its bridge imports into the disposable VM and event collector.
 - JSON-file persistence is intentionally simple and not designed for high-concurrency production workloads.
+- Authentication is a single-instance operator login: sessions are in-memory, there is no password reset, lockout, rate limiting or MFA, and all operators can see every run.
 
 ## Product Boundary
 

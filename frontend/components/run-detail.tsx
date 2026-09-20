@@ -10,7 +10,7 @@ import { groupFindings, violatedResources } from "@/lib/findings";
 import { FindingGroups } from "./finding-groups";
 import { ActionButton, AlignmentBadge, Chips, Empty, ErrorBanner, KeyValue, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatDateTime, formatTime, verificationHelp } from "./ui";
 
-const ACTIVE = ["pending", "starting", "running", "stopping"];
+const ACTIVE = ["pending", "starting", "running", "paused", "stopping"];
 
 type Tab = "chain" | "findings" | "timeline";
 

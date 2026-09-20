@@ -44,11 +44,15 @@ describe("resolveAgent", () => {
       }
     });
 
-    expect(agent.command).toEqual([
+    expect(agent.command.slice(0, 2)).toEqual(["sh", "-c"]);
+    expect(agent.command[2]).toContain('printenv OPENAI_API_KEY | "$0" login --with-api-key');
+    expect(agent.command[2]).not.toMatch(/sk-/);
+    expect(agent.command.slice(3)).toEqual([
       "codex",
       "exec",
       "--dangerously-bypass-approvals-and-sandbox",
       "--ephemeral",
+      "--skip-git-repo-check",
       "--json",
       "--model",
       "gpt-5.6-terra",
@@ -125,6 +129,20 @@ describe("resolveAgent", () => {
       "Refactor auth"
     ]);
     expect(agent.defaultBaseVm).toBe("agentguard-claude-code-base");
+  });
+
+  it("pins Claude Code to an Anthropic workspace via header when the host configures one", () => {
+    const request: CreateRunRequest = { ...baseRequest, command: undefined, agent: { kind: "claude_code", prompt: "x" } };
+    const hostEnv = { ANTHROPIC_WORKSPACE_ID: " wrkspc_123 ", ANTHROPIC_API_KEY: "sk-ant-secret", OPENAI_API_KEY: "sk-o" };
+
+    const claude = resolveAgent(request, hostEnv);
+    expect(claude.environment.ANTHROPIC_CUSTOM_HEADERS).toBe("anthropic-workspace-id: wrkspc_123");
+    expect(Object.values(claude.environment)).not.toContain("sk-ant-secret");
+    expect(claude.environment).not.toHaveProperty("ANTHROPIC_API_KEY");
+
+    expect(resolveAgent(request, {}).environment).not.toHaveProperty("ANTHROPIC_CUSTOM_HEADERS");
+    const codex = resolveAgent({ ...request, agent: { kind: "codex", prompt: "x" } }, hostEnv);
+    expect(codex.environment).not.toHaveProperty("ANTHROPIC_CUSTOM_HEADERS");
   });
 
   it("resolves a Devin bridge profile without assuming cloud sandbox visibility", () => {
