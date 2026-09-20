@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { ArrowDown, ArrowLeft, FileText, GitPullRequestArrow, PanelsTopLeft, RefreshCw } from "lucide-react";
 import { approveIntent, approveReview, createPullRequestFromRun, createReview, getRunDetail, getTimeline, rejectIntent, rejectReview, stopRun } from "@/lib/api";
 import type { AgentIntent, AlignmentSegment, Finding, HumanRequest, ObservedBehavior, ObservedItem, PermissionSnapshot, RequestAnalysis, ResultSummary, RunDetail as RunDetailModel, TimelineEntry } from "@/lib/contracts";
@@ -14,10 +14,8 @@ import { ActionButton, AlignmentBadge, Chips, Empty, ErrorBanner, KeyValue, RunS
 const ACTIVE = ["pending", "starting", "running", "paused", "stopping"];
 
 export function RunDetail({ runId }: { runId: string }) {
-  const loadDetail = useCallback((signal: AbortSignal) => getRunDetail(runId, signal), [runId]);
-  const loadTimeline = useCallback((signal: AbortSignal) => getTimeline(runId, signal), [runId]);
-  const detail = useResource(loadDetail);
-  const timeline = useResource(loadTimeline, 6000);
+  const detail = useResource((signal) => getRunDetail(runId, signal), 4000, [runId]);
+  const timeline = useResource((signal) => getTimeline(runId, signal), 6000, [runId]);
   const [tab, setTab] = useState<"chain" | "findings" | "timeline">("chain");
 
   const refreshAll = async () => { await Promise.all([detail.refresh(), timeline.refresh()]); };
