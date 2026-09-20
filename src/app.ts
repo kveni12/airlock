@@ -87,11 +87,14 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   }
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1" });
 
-  const setupToken = await auth.issueSetupToken();
-  if (setupToken) {
-    app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+  const authDisabled = process.env.PERISCOPE_AUTH_DISABLED === "1";
+  if (!authDisabled) {
+    await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1" });
+    const setupToken = await auth.issueSetupToken();
+    if (setupToken) {
+      app.log.warn(`Periscope has no operator account yet. Create the first administrator at /setup with this one-time token: ${setupToken}`);
+    }
   }
 
   app.get("/health", async () => ({ ok: true }));
