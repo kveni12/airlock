@@ -171,7 +171,7 @@ export function summarizeScope(scope: AccessScope, provider: RuntimeProviderKind
   out.push(rw.length ? `Can change: ${rw.join(", ")}.` : "Can change: nothing (read-only run).");
   if (ro.length) out.push(`Read only: ${ro.join(", ")}.`);
   out.push(scope.hosts.length ? `Internet: only ${scope.hosts.join(", ")}.` : "Internet: off.");
-  out.push(scope.secrets.length ? `Secrets: ${scope.secrets.join(", ")}.` : "Secrets: none.");
+  out.push(scope.secrets.length ? `Keys: ${scope.secrets.join(", ")}.` : "Keys: none.");
   out.push(scope.mcpServers.length ? `MCP servers: ${scope.mcpServers.join(", ")}.` : "MCP servers: none.");
   out.push("If the plan needs more than this, Periscope will ask you before the run starts.");
   return out;
@@ -209,9 +209,9 @@ export function AccessScopeEditor({ scope, onChange, provider, plannerOnly, repo
         <AddInput placeholder="registry.npmjs.org" onAdd={addUnique("hosts")} />
       </div>
       <div className={block}>
-        <div className={head}><p className={title}><KeyRound className="size-4" />Secrets</p><EnforcementTag e={SECRET_ENFORCEMENT} /></div>
+        <div className={head}><p className={title}><KeyRound className="size-4" />Keys</p><EnforcementTag e={SECRET_ENFORCEMENT} /></div>
         <p className="mt-1 text-xs text-[#64717c]">Env var names read from the backend process; values are never stored or shown.</p>
-        <div className="mt-2"><TagList items={scope.secrets} onRemove={remove("secrets")} empty="No secrets injected." /></div>
+        <div className="mt-2"><TagList items={scope.secrets} onRemove={remove("secrets")} empty="No keys provided." /></div>
         <AddInput placeholder="ANTHROPIC_API_KEY" onAdd={addUnique("secrets")} />
       </div>
       <div className={block}>
