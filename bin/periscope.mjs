@@ -38,7 +38,8 @@ async function loadCookie() {
   try { return JSON.parse(await readFile(SESSION_FILE, "utf8"))[API] ?? null; } catch { return null; }
 }
 
-async function api(method, route, body, { allowStatus = [] } = {}) {
+async function api(method, route, body, { allowStatus = [], soft = false } = {}) {
+  const bail = (message) => { if (soft) throw new Error(message); fail(message); };
   const cookie = await loadCookie();
   let res;
   try {
@@ -48,12 +49,12 @@ async function api(method, route, body, { allowStatus = [] } = {}) {
       body: body ? JSON.stringify(body) : undefined
     });
   } catch {
-    fail(`backend not reachable at ${API} — start it with \`npm run dev:all\` (or pass --api).`);
+    bail(`backend not reachable at ${API} — start it with \`npm run dev:all\` (or pass --api).`);
   }
-  if (res.status === 401) fail("not signed in — run `periscope login` (or start the backend with PERISCOPE_AUTH_DISABLED=1).");
+  if (res.status === 401) bail("not signed in — run `periscope login` (or start the backend with PERISCOPE_AUTH_DISABLED=1).");
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
-  if (!res.ok && !allowStatus.includes(res.status)) fail(`${method} ${route} → ${res.status}: ${data?.error ?? text}`);
+  if (!res.ok && !allowStatus.includes(res.status)) bail(`${method} ${route} → ${res.status}: ${data?.error ?? text}`);
   return { status: res.status, data, res };
 }
 
@@ -148,11 +149,31 @@ async function startRun(repoPath, agentKind, extraArgs, explicitCommand) {
   if (!run?.sandboxName) fail(`run ${runId} did not start: ${run?.failureReason ?? run?.status}`);
   console.error(`Run ${runId} · ${UI}/workbench/${runId}\nAttaching to the sandbox; the run ends when you exit the CLI.\n`);
   const attach = spawn("docker", ["attach", run.sandboxName], { stdio: "inherit" });
+  // Ctrl-C belongs to the CLI inside the sandbox (docker attach forwards it); only a hangup/terminate
+  // of this wrapper stops the run so nothing keeps running unattended.
+  const ignore = () => {};
+  process.on("SIGINT", ignore);
+  const stopOnSignal = (signal) => {
+    console.error(`\nperiscope: ${signal} received, stopping run ${runId}…`);
+    api("POST", `/api/runs/${runId}/stop`, {}, { soft: true }).catch(() => {}).finally(() => attach.kill("SIGKILL"));
+  };
+  process.on("SIGTERM", () => stopOnSignal("SIGTERM"));
+  process.on("SIGHUP", () => stopOnSignal("SIGHUP"));
   await new Promise((resolve) => attach.on("exit", resolve));
-  for (let i = 0; i < 120; i++) {
-    run = (await api("GET", `/api/runs/${runId}`)).data;
-    if (!["starting", "running", "paused"].includes(run.status)) break;
-    await new Promise((r) => setTimeout(r, 500));
+  process.off("SIGINT", ignore);
+
+  try {
+    for (let i = 0; i < 120; i++) {
+      run = (await api("GET", `/api/runs/${runId}`, undefined, { soft: true })).data;
+      if (!["starting", "running", "paused"].includes(run.status)) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  } catch (error) {
+    fail(`lost the backend after the session ended (${error instanceof Error ? error.message : error}).\nThe sandbox ${run.sandboxName} may still be running: \`docker stop ${run.sandboxName}\`; the run is ${UI}/runs/${runId} once the backend is back.`);
+  }
+  if (["starting", "running", "paused"].includes(run.status)) {
+    console.error(`\nRun ${runId} is still ${run.status} (detached without exiting the CLI?). Re-attach with \`docker attach ${run.sandboxName}\` or stop it from ${UI}/runs/${runId}.`);
+    process.exit(0);
   }
   const git = run.gitSummary;
   console.error(`\nRun ${run.status}${run.exitCode != null ? ` (exit ${run.exitCode})` : ""} · ${git ? `${git.filesChanged} file(s) changed` : "no diff captured"}`);
