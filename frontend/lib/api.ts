@@ -4,6 +4,7 @@ import type {
   AgentIntent,
   AgentIntentDraft,
   AgentProfile,
+  AuthStatus,
   CreateRunBody,
   DashboardSnapshot,
   Finding,
@@ -11,6 +12,12 @@ import type {
   GenerateIntentBody,
   HumanRequest,
   PermissionSnapshot,
+  Project,
+  ProjectInput,
+  PublicUser,
+  RepoTreeListing,
+  RuntimeSetupJob,
+  RuntimeStatus,
   RequestAnalysis,
   RequestAnalyzerRules,
   ResolutionAttempt,
@@ -30,11 +37,12 @@ export class AgentGuardApiError extends Error {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT"; body?: unknown }): Promise<T> {
+async function request<T>(path: string, signal?: AbortSignal, init?: { method?: "POST" | "PUT" | "DELETE"; body?: unknown }): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       cache: "no-store",
+      credentials: "include",
       signal,
       method: init?.method ?? "GET",
       headers: init?.body !== undefined ? { "content-type": "application/json" } : undefined,
@@ -53,6 +61,7 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
     }
     throw new AgentGuardApiError(message, response.status);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -61,6 +70,33 @@ function post<T>(path: string, body: unknown = {}) {
 }
 
 const enc = encodeURIComponent;
+
+// ---- auth ----
+
+export function getAuthStatus(signal?: AbortSignal) {
+  return request<AuthStatus>("/api/auth/status", signal);
+}
+
+/** A full page navigation, not a fetch: the browser has to follow Google's redirects. */
+export function googleSignInUrl(returnTo: string): string {
+  return `${API_BASE_URL}/api/auth/google/start?returnTo=${enc(returnTo)}`;
+}
+
+export async function getCurrentUser(signal?: AbortSignal): Promise<PublicUser> {
+  return (await request<{ user: PublicUser }>("/api/auth/me", signal)).user;
+}
+
+export async function login(email: string, password: string): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/login", { email, password })).user;
+}
+
+export async function bootstrapAdmin(body: { email: string; password: string; displayName?: string; setupToken: string }): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/bootstrap", body)).user;
+}
+
+export function logout() {
+  return post<{ ok: boolean }>("/api/auth/logout");
+}
 
 export interface IntentAlignmentResponse {
   intentId: string;
@@ -128,6 +164,32 @@ export function previewRequest(rawPrompt: string, rules?: RequestAnalyzerRules) 
   return post<RequestAnalysis>("/api/requests/preview", { rawPrompt, rules });
 }
 
+// ---- projects ----
+
+export function getProjects(signal?: AbortSignal) {
+  return request<Project[]>("/api/projects", signal);
+}
+
+export function getProject(id: string, signal?: AbortSignal) {
+  return request<Project>(`/api/projects/${enc(id)}`, signal);
+}
+
+export function createProject(input: ProjectInput) {
+  return post<Project>("/api/projects", input);
+}
+
+export function updateProject(id: string, input: ProjectInput) {
+  return request<Project>(`/api/projects/${enc(id)}`, undefined, { method: "PUT", body: input });
+}
+
+export function openProject(id: string) {
+  return post<Project>(`/api/projects/${enc(id)}/open`);
+}
+
+export function deleteProject(id: string) {
+  return request<void>(`/api/projects/${enc(id)}`, undefined, { method: "DELETE" });
+}
+
 export function getRequestRules(signal?: AbortSignal) {
   return request<RequestAnalyzerRules>("/api/request-rules", signal);
 }
@@ -162,6 +224,22 @@ export function getIntent(id: string, signal?: AbortSignal) {
 
 export function getIntentAlignment(id: string, signal?: AbortSignal) {
   return request<IntentAlignmentResponse>(`/api/intents/${enc(id)}/alignment`, signal);
+}
+
+export function getRepoTree(repoPath: string, dir = "", signal?: AbortSignal) {
+  return request<RepoTreeListing>(`/api/repo-tree?path=${enc(repoPath)}&dir=${enc(dir)}`, signal);
+}
+
+export function getRuntimeStatus(signal?: AbortSignal) {
+  return request<RuntimeStatus>("/api/runtime/status", signal);
+}
+
+export function startRuntimeSetup(target: { provider: "docker" } | { provider: "lima"; agent?: string }) {
+  return post<RuntimeSetupJob>("/api/runtime/setup", target);
+}
+
+export function getRuntimeSetupJob(id: string, signal?: AbortSignal) {
+  return request<RuntimeSetupJob>(`/api/runtime/setup/${enc(id)}`, signal);
 }
 
 export function checkIntentAccess(id: string, permissions: PermissionSnapshot) {
@@ -246,7 +324,7 @@ export async function loadDashboardSnapshot(signal?: AbortSignal): Promise<Dashb
 }
 
 export function subscribeToRun(runId: string, onEvent: (event: AgentEvent) => void, onError?: () => void): () => void {
-  const source = new EventSource(`${API_BASE_URL}/api/runs/${enc(runId)}/stream`);
+  const source = new EventSource(`${API_BASE_URL}/api/runs/${enc(runId)}/stream`, { withCredentials: true });
   source.onmessage = (message) => onEvent(JSON.parse(message.data) as AgentEvent);
   const eventNames = ["runtime.started", "runtime.completed", "runtime.failed", "runtime.stopped", "runtime.telemetry_degraded", "process.start", "process.output", "process.exit", "process.command_start", "process.command_result", "filesystem.write", "filesystem.create", "filesystem.delete", "network.request", "secret.access", "mcp.tool_call", "mcp.tool_result", "git.file_changed", "git.diff_generated", "policy.violation", "agent.message", "agent.tool_call", "agent.tool_result"];
   for (const eventName of eventNames) source.addEventListener(eventName, (message) => onEvent(JSON.parse((message as MessageEvent).data) as AgentEvent));

@@ -12,7 +12,7 @@ import { FindingCard } from "./finding-card";
 import { AlignmentTile, BehaviorSection, IntentSection, PermissionsSection, RequestSection, ResultSection, Timeline, actorStyle } from "./run-detail";
 import { ActionButton, AlignmentBadge, ErrorBanner, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatTime } from "./ui";
 
-const ACTIVE = ["pending", "starting", "running", "stopping"];
+const ACTIVE = ["pending", "starting", "running", "paused", "stopping"];
 
 type FileMark = "declared" | "undeclared" | "expected_untouched";
 

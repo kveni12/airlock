@@ -10,7 +10,7 @@ import { groupFindings, violatedResources } from "@/lib/findings";
 import { FindingGroups } from "./finding-groups";
 import { ActionButton, AlignmentBadge, Chips, Empty, ErrorBanner, KeyValue, RunStatusBadge, Section, SeverityBadge, VerificationBadge, formatDateTime, formatTime, verificationHelp } from "./ui";
 
-const ACTIVE = ["pending", "starting", "running", "stopping"];
+const ACTIVE = ["pending", "starting", "running", "paused", "stopping"];
 
 export function RunDetail({ runId }: { runId: string }) {
   const detail = useResource((signal) => getRunDetail(runId, signal), 4000, [runId]);

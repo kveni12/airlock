@@ -6,6 +6,7 @@ export type RunStatus =
   | "pending"
   | "starting"
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "stopping"
@@ -83,7 +84,35 @@ export interface CreateRunRequest {
   requestId?: string;
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
 }
+
+/** A repo plus the saved sandbox settings New request starts from when the project is opened. */
+export interface Project {
+  id: string;
+  name: string;
+  repoPath: string;
+  branch?: string;
+  /** Agent adapter kind (`claude_code`, `codex`, ...); undefined = shell command. */
+  agentKind?: string;
+  runtime: RuntimeProviderKind;
+  scope: ProjectScope;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+export interface ProjectScope {
+  /** Paths relative to the repo ("/workspace" = whole repo) with the access the builder gets. */
+  folders: FilePermission[];
+  hosts: string[];
+  secrets: string[];
+  mcpServers: string[];
+  tools: string[];
+}
+
+export type ProjectInput = Omit<Project, "id" | "createdAt" | "updatedAt" | "lastOpenedAt">;
 
 export interface AgentIntentDraft {
   goal: string;
@@ -235,6 +264,7 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
 }
 
 export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
@@ -352,6 +382,51 @@ export interface BehaviorSummary {
   tests: Array<{ command: string; passed?: boolean; eventIds: string[] }>;
 }
 
+/**
+ * Additions an agent asks for mid-run when it discovers its declared intent is too narrow.
+ * Every list is additive to the current intent / permission snapshot; nothing is removed.
+ */
+export interface IntentAmendmentChanges {
+  plannedActions?: string[];
+  expectedFiles?: string[];
+  expectedDependencies?: string[];
+  expectedCommands?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedTools?: string[];
+  expectedSecrets?: string[];
+}
+
+export type IntentAmendmentStatus = "pending" | "approved" | "denied";
+
+export interface IntentAmendment {
+  id: string;
+  runId: string;
+  taskId: string;
+  agentId: string;
+  /** Intent in force when the amendment was requested. */
+  intentId?: string;
+  /** Intent created by approving this amendment (supersedes `intentId`). */
+  resultingIntentId?: string;
+  requestId?: string;
+  reason: string;
+  changes: IntentAmendmentChanges;
+  /** Extra capabilities requested alongside the plan change. */
+  permissions: PermissionSnapshot;
+  status: IntentAmendmentStatus;
+  /** How the agent asked: control-channel HTTP call or a protocol line on stdout. */
+  channel: "control_channel" | "agent_output";
+  decision?: {
+    actor?: string;
+    reason?: string;
+    at: string;
+    /** Permission kinds that took effect in the live sandbox vs. those only recorded for the next run. */
+    appliedLive: Array<keyof PermissionSnapshot>;
+    deferred: Array<keyof PermissionSnapshot>;
+  };
+  createdAt: string;
+}
+
 export interface HumanRequest {
   id: string;
   taskId: string;
@@ -365,6 +440,8 @@ export interface HumanRequest {
     attachments?: string[];
     metadata?: Record<string, unknown>;
   };
+  /** Authenticated operator who recorded the request. */
+  createdBy?: string;
   createdAt: string;
 }
 
@@ -501,8 +578,28 @@ export interface TimelineEntry {
   };
 }
 
+export type UserRole = "admin" | "operator";
+
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  /** Absent for accounts that only sign in through Google. */
+  salt?: string;
+  passwordHash?: string;
+  /** Google's stable account identifier, set once the account has signed in with Google. */
+  googleSubject?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+/** A user without the credential material, safe to return from the API. */
+export type PublicUser = Omit<User, "salt" | "passwordHash">;
+
 export interface StoredData {
   runs: RunRecord[];
+  users: User[];
   events: AgentEvent[];
   permissions: Record<string, PermissionSnapshot>;
   requests: HumanRequest[];
@@ -512,6 +609,8 @@ export interface StoredData {
   reviews: Review[];
   resolutions: ResolutionAttempt[];
   requestRules?: RequestAnalyzerRules;
+  projects?: Project[];
+  intentAmendments?: IntentAmendment[];
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &

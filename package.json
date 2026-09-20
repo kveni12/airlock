@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:all": "node scripts/dev-all.mjs",
+    "dev:public": "node scripts/dev-public.mjs",
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -16,9 +17,11 @@
     "phase2:test": "RUN_PHASE2_E2E=1 vitest run tests/phase2.integration.test.ts",
     "demo:phase2": "bash scripts/run-phase2-demo.sh",
     "demo:intent": "tsx scripts/run-intent-demo.ts",
+    "demo:projects": "tsx scripts/seed-projects.ts",
     "docker:build": "docker build -t agentguard-runtime:latest -f runtime/Dockerfile ."
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^10.0.1",
     "chokidar": "^4.0.3",
     "dockerode": "^4.0.2",
