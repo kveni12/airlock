@@ -7,3 +7,6 @@ coverage/
 .env
 .env.*
 !.env.example
+.next/
+*.tsbuildinfo
+__pycache__/
