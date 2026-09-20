@@ -24,7 +24,8 @@ const BLOCKED = [
   /^\/api\/repos?(\/|$)/,
   /^\/api\/host(\/|$)/,
   /^\/api\/request-rules(\/|$)/,
-  /^\/api\/findings\/[^/]+\/resolve$/
+  /^\/api\/findings\/[^/]+\/resolve$/,
+  /^\/api\/runs\/[^/]+\/pull-request$/
 ];
 
 // Writes allowed without a password: they only edit the JSON store or start sandboxed fixture runs.
