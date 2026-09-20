@@ -3,8 +3,15 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { dismissFinding, getResolution, resolveFinding } from "@/lib/api";
-import type { Finding, ResolutionAttempt } from "@/lib/contracts";
+import type { Finding, FindingClassification, ResolutionAttempt } from "@/lib/contracts";
+import { classificationLabel } from "@/lib/findings";
 import { ActionButton, FindingStatusBadge, SeverityBadge, VerificationBadge, formatDateTime } from "./ui";
+
+const classificationTone: Record<FindingClassification, string> = {
+  request_drift: "status-bad",
+  permission_violation: "status-bad",
+  plan_drift: "status-warn"
+};
 
 const sourceLabel: Record<Finding["source"], string> = {
   policy: "Policy",
@@ -37,7 +44,7 @@ export function FindingCard({ finding, resolutions = [], onChanged, showRun }: {
   return <article className="card p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={finding.severity} /><FindingStatusBadge status={finding.status} /><span className="status">{sourceLabel[finding.source]}</span><span className="mono text-xs text-[#64717c]">{finding.type}</span><VerificationBadge verification={evidence?.verification} /></div>
+        <div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={finding.severity} /><FindingStatusBadge status={finding.status} />{finding.classification && <span className={`status ${classificationTone[finding.classification]}`}>{classificationLabel[finding.classification]}</span>}<span className="status">{sourceLabel[finding.source]}</span><span className="mono text-xs text-[#64717c]">{finding.type}</span><VerificationBadge verification={evidence?.verification} /></div>
         <h3 className="mt-2 text-base font-semibold">{finding.title}</h3>
         <p className="mt-1 text-sm text-[#3a4650]">{finding.description}</p>
         {finding.file && <p className="mono mt-1 text-xs text-[#64717c]">{finding.file}{finding.line ? `:${finding.line}` : ""}</p>}

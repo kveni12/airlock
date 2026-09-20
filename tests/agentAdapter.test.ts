@@ -44,11 +44,15 @@ describe("resolveAgent", () => {
       }
     });
 
-    expect(agent.command).toEqual([
+    expect(agent.command.slice(0, 2)).toEqual(["sh", "-c"]);
+    expect(agent.command[2]).toContain('printenv OPENAI_API_KEY | "$0" login --with-api-key');
+    expect(agent.command[2]).not.toMatch(/sk-/);
+    expect(agent.command.slice(3)).toEqual([
       "codex",
       "exec",
       "--dangerously-bypass-approvals-and-sandbox",
       "--ephemeral",
+      "--skip-git-repo-check",
       "--json",
       "--model",
       "gpt-5.6-terra",
@@ -127,6 +131,20 @@ describe("resolveAgent", () => {
     expect(agent.defaultBaseVm).toBe("agentguard-claude-code-base");
   });
 
+  it("pins Claude Code to an Anthropic workspace via header when the host configures one", () => {
+    const request: CreateRunRequest = { ...baseRequest, command: undefined, agent: { kind: "claude_code", prompt: "x" } };
+    const hostEnv = { ANTHROPIC_WORKSPACE_ID: " wrkspc_123 ", ANTHROPIC_API_KEY: "sk-ant-secret", OPENAI_API_KEY: "sk-o" };
+
+    const claude = resolveAgent(request, hostEnv);
+    expect(claude.environment.ANTHROPIC_CUSTOM_HEADERS).toBe("anthropic-workspace-id: wrkspc_123");
+    expect(Object.values(claude.environment)).not.toContain("sk-ant-secret");
+    expect(claude.environment).not.toHaveProperty("ANTHROPIC_API_KEY");
+
+    expect(resolveAgent(request, {}).environment).not.toHaveProperty("ANTHROPIC_CUSTOM_HEADERS");
+    const codex = resolveAgent({ ...request, agent: { kind: "codex", prompt: "x" } }, hostEnv);
+    expect(codex.environment).not.toHaveProperty("ANTHROPIC_CUSTOM_HEADERS");
+  });
+
   it("resolves a Devin bridge profile without assuming cloud sandbox visibility", () => {
     const agent = resolveAgent({
       ...baseRequest,
@@ -175,5 +193,21 @@ describe("resolveAgent", () => {
         agent: { kind: "claude_code" }
       })
     ).toThrow("agent.prompt is required");
+  });
+});
+
+describe("resolveAgent (interactive)", () => {
+  const base: CreateRunRequest = { taskId: "t", agentId: "a", repo: { path: "." }, interactive: true };
+
+  it("starts the agent's own interactive CLI without a prompt", () => {
+    expect(resolveAgent({ ...base, agent: { kind: "claude_code" } }).command).toEqual(["claude"]);
+    expect(resolveAgent({ ...base, agent: { kind: "opencode", args: ["--model", "x"] } }).command).toEqual(["opencode", "--model", "x"]);
+    const codex = resolveAgent({ ...base, agent: { kind: "codex" } }).command;
+    expect(codex.slice(0, 2)).toEqual(["sh", "-c"]);
+    expect(codex.slice(3)).toEqual(["codex"]); // no `exec`/`--json`/prompt: the plain interactive CLI
+  });
+
+  it("refuses kinds that have no interactive CLI", () => {
+    expect(() => resolveAgent({ ...base, agent: { kind: "devin" } })).toThrow(/interactive CLI/);
   });
 });

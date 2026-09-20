@@ -32,7 +32,9 @@ export function RunsList() {
     </div>
     <div className="grid gap-3">
       {runs.map((run) => <RunRow key={run.id} run={run} />)}
-      {!loading && runs.length === 0 && <Empty title="No runs yet" body="Create a request and start a run, or run `npm run demo:intent` in the backend to seed a deterministic scenario." />}
+      {!loading && runs.length === 0 && (data?.length
+        ? <Empty title="No runs match these filters" body={`${data.length} run${data.length === 1 ? "" : "s"} hidden by the current search or purpose filter.`} action={<button onClick={() => { setQuery(""); setPurpose("all"); }} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold hover:bg-[#f3f4f5]">Clear filters</button>} />
+        : <Empty title="No runs yet" body="Create a request and start a run to see its evidence chain here." action={<Link href="/requests/new" className="rounded-lg bg-[#d1b191] px-3 py-2 text-xs font-semibold text-[#182a33] hover:bg-[#c4a17d]">New request</Link>} />)}
       {loading && !data && [0, 1, 2].map((i) => <div key={i} className="skeleton h-20" />)}
     </div>
   </section>;

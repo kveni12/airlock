@@ -72,4 +72,15 @@ describe("PolicyEngine read-only scope", () => {
     const allowed = await engine.evaluate({ ...base, resource: "/workspace/tests/app.test.js" });
     expect(allowed.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
   });
+
+  it("lets a read-only subfolder narrow a writable parent (most specific grant wins)", async () => {
+    const engine = new PolicyEngine(async () => ({
+      permissions: { filesystem: [{ path: "/workspace", access: "read_write" }, { path: "/workspace/infra", access: "read" }] }
+    }));
+    const base = { id: "e", runId: "r", taskId: "t", agentId: "a", timestamp: new Date().toISOString(), category: "filesystem" as const, action: "write" };
+    const denied = await engine.evaluate({ ...base, resource: "/workspace/infra/prod.tf" });
+    expect(denied.map((event) => event.metadata?.rule)).toContain("permission_scope");
+    const allowed = await engine.evaluate({ ...base, resource: "/workspace/src/app.js" });
+    expect(allowed.map((event) => event.metadata?.rule)).not.toContain("permission_scope");
+  });
 });

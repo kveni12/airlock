@@ -31,7 +31,7 @@ export function verificationHelp(verification: EvidenceVerification | "unavailab
 }
 
 export function RunStatusBadge({ status }: { status: RunStatus }) {
-  const cls = status === "completed" ? "status-good" : status === "failed" ? "status-bad" : ["running", "starting", "pending", "stopping"].includes(status) ? "status-info" : "";
+  const cls = status === "completed" ? "status-good" : status === "failed" ? "status-bad" : ["running", "starting", "pending", "stopping"].includes(status) ? "status-info" : status === "paused" ? "status-warn" : "";
   return <span className={`status ${cls}`}>{status}</span>;
 }
 
@@ -82,8 +82,8 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
   return <div className="flex items-center justify-between gap-3 rounded-xl border border-[#e3a59b] bg-[#fff1ee] p-4 text-sm text-[#7a2d24]"><span>{message}</span>{onRetry && <button onClick={onRetry} className="rounded-lg border border-[#e3a59b] bg-white px-3 py-1.5 text-xs font-semibold">Retry</button>}</div>;
 }
 
-export function Empty({ title, body }: { title: string; body?: string }) {
-  return <div className="rounded-xl border border-dashed p-6 text-center text-sm text-[#64717c]"><p className="font-semibold text-[#14212a]">{title}</p>{body && <p className="mt-1">{body}</p>}</div>;
+export function Empty({ title, body, action }: { title: string; body?: string; action?: React.ReactNode }) {
+  return <div className="rounded-xl border border-dashed p-6 text-center text-sm text-[#64717c]"><p className="font-semibold text-[#14212a]">{title}</p>{body && <p className="mt-1">{body}</p>}{action && <div className="mt-3 flex justify-center">{action}</div>}</div>;
 }
 
 export function formatTime(iso: string) {

@@ -1,9 +1,10 @@
 import type { FindingDraft } from "../findings/findingService.js";
 import { matchesAny } from "../policy/policyEngine.js";
 import { normalizeExpectedFile } from "../intent/intentService.js";
-import type { AgentEvent, AgentIntent, BehaviorSummary, EvidenceVerification, RunRecord } from "../types.js";
+import type { AgentEvent, AgentIntent, BehaviorSummary, EvidenceVerification, RequestAnalysis, RequestResource, RunRecord } from "../types.js";
 import { BehaviorAnalyzer, type BehaviorAnalysis } from "./behaviorAnalyzer.js";
 import { buildObservedBehavior, type ObservedBehavior } from "./observedBehavior.js";
+import { FILE_PATTERNS } from "./requestIntentAnalyzer.js";
 
 export interface IntentBehaviorAnalysis extends BehaviorAnalysis {
   observed: ObservedBehavior;
@@ -19,7 +20,7 @@ const TEST_COMMAND = /(^|\s)(npm|pnpm|yarn|bun)( run)? test|(^|\s)(pytest|cargo 
 export class IntentBehaviorAnalyzer {
   constructor(private readonly base = new BehaviorAnalyzer()) {}
 
-  analyze(run: RunRecord, intent: AgentIntent, events: AgentEvent[]): IntentBehaviorAnalysis {
+  analyze(run: RunRecord, intent: AgentIntent, events: AgentEvent[], requestAnalysis?: RequestAnalysis): IntentBehaviorAnalysis {
     const eventsById = new Map(events.map((event) => [event.id, event]));
     const baseline = this.base.analyze(run, intent, events);
     const declaresTestCommand = intent.expectedCommands.some((command) => TEST_COMMAND.test(command));
@@ -33,6 +34,7 @@ export class IntentBehaviorAnalyzer {
     findings.push(...undeclaredTools(base, intent, observed));
     findings.push(...missingExpectedFiles(base, intent, baseline.summary));
     findings.push(...missingExpectedCommands(base, intent, baseline.summary, observed));
+    if (requestAnalysis) findings.push(...constraintViolations(base, requestAnalysis, baseline.summary, observed, eventsById));
 
     return { summary: baseline.summary, findings, observed };
   }
@@ -55,6 +57,72 @@ function strongestVerification(eventIds: string[], eventsById: Map<string, Agent
   if (levels.includes("independent")) return "independent";
   if (levels.includes("agent_reported")) return "agent_reported";
   return "inferred";
+}
+
+/**
+ * Observed behavior that breaks an explicit human constraint ("do not modify infrastructure", "do not add
+ * dependencies", ...). These are request drift, not plan drift, and outrank the matching "undeclared" findings.
+ */
+function constraintViolations(
+  base: Base,
+  analysis: RequestAnalysis,
+  summary: BehaviorSummary,
+  observed: ObservedBehavior,
+  eventsById: Map<string, AgentEvent>
+): FindingDraft[] {
+  const findings: FindingDraft[] = [];
+  const seen = new Set<string>();
+  const forbidden = analysis.explicitlyForbiddenResources.filter((resource) => resource.provenance === "explicit");
+  const constraintFor = (resource: RequestResource) =>
+    analysis.explicitConstraints.find((item) => (item.excerpt ?? item.text) === resource.excerpt)?.text ?? resource.excerpt;
+  const push = (resource: RequestResource, observedResource: string, what: string, eventIds: string[], severity: "high" | "critical", file?: string) => {
+    const key = `${resource.category}:${observedResource}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    findings.push({
+      ...base,
+      source: "intent_comparison",
+      type: "constraint_violation",
+      classification: "request_drift",
+      severity,
+      title: "Explicit request constraint violated",
+      description: `The human wrote "${constraintFor(resource)}", but the run ${what}.`,
+      file,
+      evidence: {
+        eventIds,
+        observedResource,
+        declaredResource: resource.resource,
+        humanRequestExcerpt: resource.excerpt,
+        intentId: base.intentId,
+        requestId: base.requestId,
+        verification: strongestVerification(eventIds, eventsById)
+      }
+    });
+  };
+
+  for (const resource of forbidden) {
+    const patterns = FILE_PATTERNS[resource.category];
+    if (patterns) {
+      for (const file of summary.filesModified) {
+        if (!patterns.some((pattern) => pattern.test(file.resource))) continue;
+        push(resource, file.resource, `changed ${resource.category} file '${file.resource}'`, file.eventIds, resource.category === "infrastructure" || resource.category === "database" ? "critical" : "high", file.resource);
+      }
+    }
+    if (resource.category === "dependencies") {
+      for (const dependency of observed.dependenciesAdded) {
+        push(resource, dependency.name, `added dependency '${dependency.name}'`, dependency.eventIds, "high", dependency.file);
+      }
+    }
+    if (resource.category === "network") {
+      for (const destination of observed.networkDestinations) {
+        push(resource, destination.name, `contacted '${destination.name}'`, destination.eventIds, destination.allowed === false ? "critical" : "high");
+      }
+    }
+    if (resource.category === "secrets" && Array.isArray(observed.secrets)) {
+      for (const secret of observed.secrets) push(resource, secret.name, `accessed secret '${secret.name}'`, secret.eventIds, "critical");
+    }
+  }
+  return findings;
 }
 
 function undeclaredCommands(base: Base, intent: AgentIntent, summary: BehaviorSummary, eventsById: Map<string, AgentEvent>): FindingDraft[] {

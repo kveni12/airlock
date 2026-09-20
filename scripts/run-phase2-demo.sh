@@ -11,6 +11,19 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+# The API requires an operator session; the demo signs in and reuses the cookie jar.
+cookie_jar="$(mktemp)"
+trap 'rm -f "${cookie_jar}"' EXIT
+email="${PERISCOPE_EMAIL:-}"
+password="${PERISCOPE_PASSWORD:-}"
+if [[ -z "${email}" || -z "${password}" ]]; then
+  echo "Set PERISCOPE_EMAIL and PERISCOPE_PASSWORD to an operator account before running the demo." >&2
+  exit 1
+fi
+curl -fsS -c "${cookie_jar}" -X POST "${base_url}/api/auth/login" \
+  -H 'content-type: application/json' \
+  -d "$(jq -n --arg email "$email" --arg password "$password" '{email: $email, password: $password}')" >/dev/null
+
 payload="$(jq -n --arg repo "$fixture" '{
   taskId: "task_oauth_phase2_demo",
   agentId: "builder_phase2_demo",
@@ -36,11 +49,11 @@ payload="$(jq -n --arg repo "$fixture" '{
   timeoutMs: 120000
 }')"
 
-run_id="$(curl -fsS -X POST "${base_url}/api/runs" -H 'content-type: application/json' -d "$payload" | jq -r .runId)"
+run_id="$(curl -fsS -b "${cookie_jar}" -X POST "${base_url}/api/runs" -H 'content-type: application/json' -d "$payload" | jq -r .runId)"
 echo "Builder run: ${run_id}"
 
 while :; do
-  status="$(curl -fsS "${base_url}/api/runs/${run_id}" | jq -r .status)"
+  status="$(curl -fsS -b "${cookie_jar}" "${base_url}/api/runs/${run_id}" | jq -r .status)"
   case "$status" in
     completed) break ;;
     failed|stopped) echo "Builder run ended with status ${status}" >&2; exit 1 ;;
@@ -49,21 +62,21 @@ while :; do
 done
 
 for _ in $(seq 1 30); do
-  finding_id="$(curl -fsS "${base_url}/api/findings?runId=${run_id}&source=intent_comparison" | jq -r '.findings[] | select(.evidence.observedResource == "infra/prod.tf") | .id' | head -1)"
+  finding_id="$(curl -fsS -b "${cookie_jar}" "${base_url}/api/findings?runId=${run_id}&source=intent_comparison" | jq -r '.findings[] | select(.evidence.observedResource == "infra/prod.tf") | .id' | head -1)"
   [ -n "$finding_id" ] && break
   sleep 1
 done
 [ -n "${finding_id:-}" ] || { echo "Expected infrastructure finding was not created" >&2; exit 1; }
 echo "Finding: ${finding_id}"
 
-review_id="$(curl -fsS -X POST "${base_url}/api/runs/${run_id}/review" -H 'content-type: application/json' -d '{}' | jq -r .id)"
+review_id="$(curl -fsS -b "${cookie_jar}" -X POST "${base_url}/api/runs/${run_id}/review" -H 'content-type: application/json' -d '{}' | jq -r .id)"
 echo "Initial review: ${review_id}"
 
-resolution_id="$(curl -fsS -X POST "${base_url}/api/findings/${finding_id}/resolve" -H 'content-type: application/json' -d '{}' | jq -r .id)"
+resolution_id="$(curl -fsS -b "${cookie_jar}" -X POST "${base_url}/api/findings/${finding_id}/resolve" -H 'content-type: application/json' -d '{}' | jq -r .id)"
 echo "Resolution: ${resolution_id}"
 
 while :; do
-  resolution="$(curl -fsS "${base_url}/api/resolutions/${resolution_id}")"
+  resolution="$(curl -fsS -b "${cookie_jar}" "${base_url}/api/resolutions/${resolution_id}")"
   resolution_status="$(jq -r .status <<<"$resolution")"
   case "$resolution_status" in
     resolved) break ;;
@@ -73,10 +86,10 @@ while :; do
 done
 
 resolution_review_id="$(jq -r .reviewId <<<"$resolution")"
-curl -fsS -X POST "${base_url}/api/reviews/${resolution_review_id}/approve" \
+curl -fsS -b "${cookie_jar}" -X POST "${base_url}/api/reviews/${resolution_review_id}/approve" \
   -H 'content-type: application/json' \
-  -d '{"actor":"phase2-demo-human","reason":"Verified deterministic resolution."}' >/dev/null
+  -d '{"reason":"Verified deterministic resolution."}' >/dev/null
 
 echo "Approved review: ${resolution_review_id}"
 echo "Dashboard summary:"
-curl -fsS "${base_url}/api/dashboard/summary" | jq .
+curl -fsS -b "${cookie_jar}" "${base_url}/api/dashboard/summary" | jq .

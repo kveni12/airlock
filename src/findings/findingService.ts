@@ -1,4 +1,4 @@
-import type { AgentEvent, EventSeverity, Finding, FindingSource, FindingStatus, FindingType } from "../types.js";
+import type { AgentEvent, EventSeverity, Finding, FindingClassification, FindingSource, FindingStatus, FindingType } from "../types.js";
 import { EventCollector } from "../events/eventCollector.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { createId } from "../utils/id.js";
@@ -9,9 +9,17 @@ export interface FindingFilters {
   runId?: string;
   taskId?: string;
   source?: FindingSource;
+  classification?: FindingClassification;
 }
 
 export type FindingDraft = Omit<Finding, "id" | "createdAt" | "status"> & { status?: FindingStatus };
+
+export function classifyFinding(draft: Pick<Finding, "source" | "type">): FindingClassification | undefined {
+  if (draft.type === "constraint_violation" || draft.source === "request_intent_comparison") return "request_drift";
+  if (draft.source === "policy") return "permission_violation";
+  if (draft.source === "intent_comparison") return "plan_drift";
+  return undefined;
+}
 
 export class FindingService {
   private queue: Promise<void> = Promise.resolve();
@@ -30,11 +38,13 @@ export class FindingService {
     await this.queue;
   }
 
-  async create(draft: FindingDraft): Promise<Finding> {
+  async create(input: FindingDraft): Promise<Finding> {
+    const draft = await this.withTraceLinks(input);
     const duplicate = (await this.store.listFindings()).find((finding) => sameFinding(finding, draft));
     if (duplicate) return duplicate;
     const finding: Finding = {
       ...draft,
+      classification: draft.classification ?? classifyFinding(draft),
       id: createId("finding"),
       status: draft.status ?? "open",
       createdAt: new Date().toISOString()
@@ -50,7 +60,8 @@ export class FindingService {
         (!filters.severity || finding.severity === filters.severity) &&
         (!filters.runId || finding.runId === filters.runId) &&
         (!filters.taskId || finding.taskId === filters.taskId) &&
-        (!filters.source || finding.source === filters.source)
+        (!filters.source || finding.source === filters.source) &&
+        (!filters.classification || finding.classification === filters.classification)
     );
   }
 
@@ -109,6 +120,25 @@ export class FindingService {
     });
   }
 
+  /** Every finding on a run points back at the run's request and intent so the chain can be walked from any finding. */
+  private async withTraceLinks(draft: FindingDraft): Promise<FindingDraft> {
+    if (!draft.runId || (draft.evidence?.requestId && draft.evidence?.intentId)) return draft;
+    const run = await this.store.getRun(draft.runId);
+    if (!run) return draft;
+    const intent = run.intentId ? await this.store.getIntent(run.intentId) : await this.store.getIntentForRun(run.id);
+    const requestId = draft.evidence?.requestId ?? run.requestId ?? intent?.requestId;
+    const intentId = draft.evidence?.intentId ?? intent?.id;
+    if (!requestId && !intentId) return draft;
+    return {
+      ...draft,
+      evidence: {
+        ...draft.evidence,
+        ...(requestId ? { requestId } : {}),
+        ...(intentId ? { intentId } : {})
+      }
+    };
+  }
+
   private async require(id: string): Promise<Finding> {
     const finding = await this.store.getFinding(id);
     if (!finding) throw new Error(`Finding not found: ${id}`);
@@ -124,13 +154,17 @@ function policyFinding(rule: string): { type: FindingType; title: string; fileBa
   return { type: "other", title: "Policy violation", fileBased: false };
 }
 
+function affectedResource(finding: Pick<Finding, "file" | "evidence">): string | undefined {
+  return finding.evidence?.observedResource ?? finding.file;
+}
+
 function sameFinding(existing: Finding, draft: FindingDraft): boolean {
   return (
     existing.runId === draft.runId &&
     existing.source === draft.source &&
     existing.type === draft.type &&
     existing.title === draft.title &&
-    existing.evidence?.observedResource === draft.evidence?.observedResource &&
+    affectedResource(existing) === affectedResource(draft) &&
     existing.reviewId === draft.reviewId
   );
 }

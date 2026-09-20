@@ -1,4 +1,4 @@
-export type RunStatus = "pending" | "starting" | "running" | "completed" | "failed" | "stopping" | "stopped";
+export type RunStatus = "pending" | "starting" | "running" | "paused" | "completed" | "failed" | "stopping" | "stopped";
 export type EventCategory = "agent" | "filesystem" | "process" | "network" | "secret" | "mcp" | "git" | "policy" | "runtime";
 export type EventSeverity = "info" | "low" | "medium" | "high" | "critical";
 export type EvidenceSource = "runtime" | "filesystem" | "proxy" | "git" | "agent_reported" | "reviewer";
@@ -78,7 +78,46 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
+  pullRequest?: RunPullRequest;
 }
+
+export interface RunPullRequest {
+  branch: string;
+  commit: string;
+  baseHead?: string | null;
+  pushed: boolean;
+  remote?: string;
+  url?: string;
+  compareUrl?: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+export interface ProjectScope {
+  folders: Array<{ path: string; access: "read" | "read_write" }>;
+  hosts: string[];
+  secrets: string[];
+  mcpServers: string[];
+  tools: string[];
+}
+
+/** A repo plus the saved sandbox settings New request starts from when the project is opened. */
+export interface Project {
+  id: string;
+  name: string;
+  repoPath: string;
+  branch?: string;
+  agentKind?: string;
+  runtime: RuntimeProviderKind;
+  scope: ProjectScope;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+export type ProjectInput = Omit<Project, "id" | "createdAt" | "updatedAt" | "lastOpenedAt">;
 
 export interface RunFilesResponse {
   runId: string;
@@ -94,6 +133,7 @@ export interface AgentProfile {
   defaultBaseVm: string;
   runtimeReady: boolean;
   recommendedSecrets: readonly string[];
+  recommendedHosts: readonly string[];
 }
 
 export interface DashboardSnapshot {
@@ -117,6 +157,49 @@ export interface AccessGapReport {
   verification: "agent_reported";
 }
 
+export interface RepoTreeEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+}
+
+export interface RepoTreeListing {
+  repoPath: string;
+  dir: string;
+  entries: RepoTreeEntry[];
+}
+
+export interface HostFolderEntry {
+  name: string;
+  path: string;
+  isGitRepo: boolean;
+}
+
+export interface HostFolderListing {
+  dir: string;
+  parent: string | null;
+  home: string;
+  isGitRepo: boolean;
+  entries: HostFolderEntry[];
+  nativeDialog: boolean;
+}
+
+export interface RuntimeStatus {
+  docker: { available: boolean; image: string; imagePresent: boolean; detail?: string };
+  lima: { available: boolean; baseVm: string; baseVmPresent: boolean; agentVms: Record<string, { vm: string; present: boolean }>; detail?: string };
+  process: { available: true; sandboxed: false };
+}
+
+export interface RuntimeSetupJob {
+  id: string;
+  target: { provider: "docker" } | { provider: "lima"; agent?: string };
+  status: "running" | "succeeded" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  exitCode?: number | null;
+  log: string[];
+}
+
 export type AlignmentStatus = "aligned" | "warning" | "conflict";
 export type RequestProvenance = "explicit" | "inferred";
 
@@ -127,8 +210,38 @@ export interface HumanRequest {
   rawPrompt: string;
   explicitConstraints?: string[];
   requestedObjectives?: string[];
+  analysisMode?: "rules" | "manual";
   context?: { attachments?: string[]; metadata?: Record<string, unknown> };
+  createdBy?: string;
   createdAt: string;
+}
+
+export interface PublicUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "operator";
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  needsBootstrap: boolean;
+  googleEnabled?: boolean;
+  openSignup?: boolean;
+}
+
+export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";
+
+export interface RequestAnalyzerRules {
+  revision: number;
+  updatedAt: string;
+  prohibitionPatterns: string[];
+  hedgePatterns: Array<{ pattern: string; label: string }>;
+  imperativeVerbs: string[];
+  resourceLexicon: Record<LexiconCategory, string[]>;
+  inferredExpectations: Array<{ when: string; text: string }>;
 }
 
 export interface RequestStatement {
@@ -155,6 +268,7 @@ export interface RequestAnalysis {
   explicitlyForbiddenResources: RequestResource[];
   ambiguities: string[];
   analyzer: "deterministic";
+  rulesRevision?: number;
   createdAt: string;
 }
 
@@ -206,6 +320,8 @@ export interface AgentIntent {
 export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
 export type FindingStatus = "open" | "resolving" | "re_reviewing" | "resolved" | "dismissed";
 
+export type FindingClassification = "request_drift" | "plan_drift" | "permission_violation";
+
 export interface Finding {
   id: string;
   taskId: string;
@@ -213,6 +329,7 @@ export interface Finding {
   reviewId?: string;
   source: FindingSource;
   type: string;
+  classification?: FindingClassification;
   severity: EventSeverity;
   title: string;
   description: string;
@@ -242,7 +359,7 @@ export interface Review {
   runId: string;
   builderAgentId: string;
   reviewerAgentId: string;
-  status: "pending" | "reviewing" | "needs_human" | "approved" | "failed";
+  status: "pending" | "reviewing" | "needs_human" | "approved" | "rejected" | "failed";
   filesTotal: number;
   filesReviewed: number;
   cleanFiles: number;
@@ -254,6 +371,8 @@ export interface Review {
   completedAt?: string;
   approvedAt?: string;
   approval?: { actor?: string; reason?: string };
+  rejectedAt?: string;
+  rejection?: { actor?: string; reason?: string };
   failureReason?: string;
 }
 
@@ -316,6 +435,7 @@ export interface AlignmentSummary {
   intentToBehavior: AlignmentSegment;
   behaviorToResult?: AlignmentSegment;
   counts: {
+    constraintViolations: number;
     undeclaredFiles: number;
     undeclaredDependencies: number;
     undeclaredNetworkDestinations: number;
@@ -344,9 +464,11 @@ export interface ResultSummary {
     findingIds: string[];
     approvedAt?: string;
     approval?: Review["approval"];
+    rejectedAt?: string;
+    rejection?: Review["rejection"];
   };
   findings: { total: number; open: number; resolved: number; dismissed: number };
-  approvalStatus: "approved" | "needs_human" | "pending" | "not_reviewed";
+  approvalStatus: "approved" | "rejected" | "needs_human" | "pending" | "not_reviewed";
 }
 
 export interface TimelineEntry {
@@ -406,12 +528,14 @@ export interface CreateRunBody {
   intent?: AgentIntentDraft;
   intentId?: string;
   requestId?: string;
+  projectId?: string;
 }
 
 export interface GenerateIntentBody {
   taskId: string;
   agentId: string;
   requestId?: string;
+  projectId?: string;
   repo?: { path: string; branch?: string };
   agent?: AgentProfileConfig;
   command?: string[];
@@ -419,4 +543,41 @@ export interface GenerateIntentBody {
   runtime?: { provider: RuntimeProviderKind };
   timeoutMs?: number;
   structuredOutput?: unknown;
+}
+
+export type IntentAmendmentStatus = "pending" | "approved" | "denied";
+
+export interface IntentAmendmentChanges {
+  plannedActions?: string[];
+  expectedFiles?: string[];
+  expectedDependencies?: string[];
+  expectedCommands?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedTools?: string[];
+  expectedSecrets?: string[];
+}
+
+/** A mid-run request from the agent to change its plan and/or gain extra access; the run pauses until decided. */
+export interface IntentAmendment {
+  id: string;
+  runId: string;
+  taskId: string;
+  agentId: string;
+  intentId?: string;
+  resultingIntentId?: string;
+  requestId?: string;
+  reason: string;
+  changes: IntentAmendmentChanges;
+  permissions: PermissionSnapshot;
+  status: IntentAmendmentStatus;
+  channel: "control_channel" | "agent_output";
+  decision?: {
+    actor?: string;
+    reason?: string;
+    at: string;
+    appliedLive: Array<keyof PermissionSnapshot>;
+    deferred: Array<keyof PermissionSnapshot>;
+  };
+  createdAt: string;
 }

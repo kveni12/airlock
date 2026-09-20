@@ -1,4 +1,4 @@
-import { hostAllowed, normalizeResource, pathWithinPermission } from "../policy/policyEngine.js";
+import { hostAllowed, normalizeResource, writeAllowed } from "../policy/policyEngine.js";
 import type { AgentIntentDraft, PermissionSnapshot } from "../types.js";
 
 export type AccessGapKind = "filesystem_write" | "network" | "secret" | "mcp_server" | "tool";
@@ -31,7 +31,7 @@ export function analyzeAccessGaps(intent: AgentIntentDraft, permissions: Permiss
 
   for (const expected of intent.expectedFiles ?? []) {
     const target = normalizeResource(expected.replace(/\/?\*\*?$/, "")) ?? "";
-    if (filesystem.length && !writable.some((permission) => pathWithinPermission(target, permission.path))) {
+    if (!writeAllowed(target, filesystem)) {
       gaps.push({
         kind: "filesystem_write",
         requested: expected,

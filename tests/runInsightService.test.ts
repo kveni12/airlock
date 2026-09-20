@@ -23,6 +23,7 @@ describe("RunInsightService", () => {
     expect(alignment.requestToIntent.findingIds).toEqual([]);
     expect(alignment.intentToBehavior.status).toBe("warning");
     expect(alignment.counts).toEqual({
+      constraintViolations: 0,
       undeclaredFiles: 0,
       undeclaredDependencies: 1,
       undeclaredNetworkDestinations: 1,

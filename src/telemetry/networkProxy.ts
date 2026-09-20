@@ -2,17 +2,40 @@ import http from "node:http";
 import net from "node:net";
 import { URL } from "node:url";
 import type { EventCollector } from "../events/eventCollector.js";
+import { hostAllowed } from "../policy/policyEngine.js";
 import type { RunRecord } from "../types.js";
+
+/** Virtual hostnames the sandboxed agent can call (via the proxy) to talk to Periscope itself. */
+export const CONTROL_HOSTS = new Set(["periscope.internal", "agentguard.internal"]);
+
+export interface ControlRequest {
+  method: string;
+  path: string;
+  body: unknown;
+}
+
+export type ControlHandler = (request: ControlRequest) => Promise<{ status: number; body: unknown }>;
 
 export class NetworkProxy {
   private server?: http.Server;
   private port?: number;
+  private readonly allowedHosts: string[];
 
   constructor(
     private readonly run: RunRecord,
-    private readonly allowedHosts: string[],
-    private readonly events: EventCollector
-  ) {}
+    allowedHosts: string[],
+    private readonly events: EventCollector,
+    private readonly control?: ControlHandler
+  ) {
+    this.allowedHosts = [...allowedHosts];
+  }
+
+  /** Widens the live allowlist (approved mid-run amendments). Returns the hosts that were new. */
+  allow(hosts: string[]): string[] {
+    const added = hosts.filter((host) => !this.allowedHosts.includes(host));
+    this.allowedHosts.push(...added);
+    return added;
+  }
 
   async start(): Promise<number> {
     this.server = http.createServer((request, response) => {
@@ -56,6 +79,11 @@ export class NetworkProxy {
       return;
     }
 
+    if (CONTROL_HOSTS.has(destination.hostname)) {
+      await this.handleControl(request, response, destination.path);
+      return;
+    }
+
     const allowed = this.isAllowed(destination.hostname);
     await this.emitNetworkEvent(destination.hostname, allowed, destination.port);
     if (!allowed) {
@@ -79,13 +107,16 @@ export class NetworkProxy {
     );
 
     upstream.on("error", () => {
-      response.writeHead(502);
+      if (!response.headersSent) response.writeHead(502);
       response.end("Periscope proxy upstream error");
     });
+    request.on("error", () => upstream.destroy());
+    response.on("close", () => upstream.destroy());
     request.pipe(upstream);
   }
 
   private async handleConnect(request: http.IncomingMessage, clientSocket: net.Socket, head: Buffer): Promise<void> {
+    clientSocket.on("error", () => clientSocket.destroy());
     const [hostname, portText] = (request.url ?? "").split(":");
     const port = Number(portText) || 443;
     const allowed = this.isAllowed(hostname);
@@ -104,11 +135,36 @@ export class NetworkProxy {
       clientSocket.pipe(upstreamSocket);
     });
     upstreamSocket.on("error", () => clientSocket.destroy());
+    clientSocket.on("close", () => upstreamSocket.destroy());
   }
 
+  private async handleControl(request: http.IncomingMessage, response: http.ServerResponse, path: string): Promise<void> {
+    const send = (status: number, body: unknown) => {
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify(body));
+    };
+    if (!this.control) return send(404, { error: "Periscope control channel is not enabled for this run" });
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    let body: unknown = undefined;
+    if (chunks.length) {
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return send(400, { error: "Control channel body must be JSON" });
+      }
+    }
+    try {
+      const result = await this.control({ method: request.method ?? "GET", path, body });
+      send(result.status, result.body);
+    } catch (error: unknown) {
+      send(500, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** Deny by default: an empty allowlist means the agent has no network access. */
   private isAllowed(hostname: string): boolean {
-    if (!this.allowedHosts.length) return true;
-    return this.allowedHosts.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+    return hostAllowed(hostname, this.allowedHosts);
   }
 
   private async emitNetworkEvent(hostname: string, allowed: boolean, port: number): Promise<void> {

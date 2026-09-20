@@ -1,102 +1,14 @@
 import { createId } from "../utils/id.js";
+import { DEFAULT_REQUEST_RULES, compileRules, type CompiledRules, type RequestAnalyzerRules } from "./requestRules.js";
 import type {
   HumanRequest,
   RequestAnalysis,
   RequestResource,
-  RequestResourceCategory,
   RequestStatement
 } from "../types.js";
 
-export const RESOURCE_LEXICON: Record<Exclude<RequestResourceCategory, "other">, string[]> = {
-  database: ["database", "databases", "db", "table", "tables", "schema", "schemas", "migration", "migrations", "sql"],
-  infrastructure: [
-    "infrastructure",
-    "infra",
-    "terraform",
-    "kubernetes",
-    "k8s",
-    "helm",
-    "docker",
-    "dockerfile",
-    "deployment",
-    "deploy",
-    "ci",
-    "pipeline",
-    "workflow",
-    "workflows"
-  ],
-  dependencies: ["dependency", "dependencies", "package", "packages", "library", "libraries", "npm install", "third-party"],
-  network: ["network", "external service", "external services", "api call", "api calls", "http", "internet", "remote"],
-  secrets: ["secret", "secrets", "credential", "credentials", "token", "tokens", "password", "passwords", "api key", "api keys"],
-  tests: ["test", "tests", "spec", "specs", "regression test", "test suite"],
-  configuration: ["config", "configuration", "configs", "settings", "environment variable", "environment variables", ".env"]
-};
-
-const PROHIBITION_PATTERNS = [
-  /\bdo not\b/i,
-  /\bdon'?t\b/i,
-  /\bnever\b/i,
-  /\bmust not\b/i,
-  /\bmustn'?t\b/i,
-  /\bshould not\b/i,
-  /\bshouldn'?t\b/i,
-  /\bavoid\b/i,
-  /\bwithout (modifying|changing|touching|adding|removing|altering)\b/i,
-  /\bno changes? to\b/i,
-  /\bleave .* (alone|untouched|as[- ]is)\b/i
-];
-
-const HEDGE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\bmaybe\b/i, label: "hedged wording (\"maybe\")" },
-  { pattern: /\bif (necessary|needed|possible)\b/i, label: "conditional scope (\"if necessary\")" },
-  { pattern: /\bas needed\b/i, label: "open-ended scope (\"as needed\")" },
-  { pattern: /\betc\.?(\s|$)/i, label: "open-ended list (\"etc\")" },
-  { pattern: /\b(something|anything|whatever|stuff|things)\b/i, label: "vague object" },
-  { pattern: /\bor\b/i, label: "alternatives joined by \"or\"" }
-];
-
-const IMPERATIVE_VERBS = [
-  "fix",
-  "add",
-  "remove",
-  "update",
-  "change",
-  "implement",
-  "create",
-  "write",
-  "refactor",
-  "rename",
-  "delete",
-  "improve",
-  "make",
-  "build",
-  "investigate",
-  "debug",
-  "resolve",
-  "migrate",
-  "upgrade",
-  "document",
-  "test",
-  "run",
-  "clean",
-  "move",
-  "replace",
-  "support",
-  "handle",
-  "ensure",
-  "prevent",
-  "optimize",
-  "reduce",
-  "increase",
-  "enable",
-  "disable",
-  "introduce",
-  "extend",
-  "expose",
-  "wire",
-  "configure",
-  "install"
-];
+/** Default lexicon, kept for callers that only need the built-in categories. */
+export const RESOURCE_LEXICON = DEFAULT_REQUEST_RULES.resourceLexicon;
 
 export const STOP_WORDS = new Set([
   "the",
@@ -147,40 +59,62 @@ export const STOP_WORDS = new Set([
   "also"
 ]);
 
+const DEFAULT_COMPILED = compileRules(DEFAULT_REQUEST_RULES);
+
 export class RequestAnalyzer {
+  /** `rules` may be a function so edits made through the API take effect on the next analysis. */
+  constructor(private readonly rules: RequestAnalyzerRules | (() => RequestAnalyzerRules) = DEFAULT_REQUEST_RULES) {}
+
   analyze(request: HumanRequest): RequestAnalysis {
+    return this.analyzeWith(request, compileRules(typeof this.rules === "function" ? this.rules() : this.rules));
+  }
+
+  analyzeWith(request: HumanRequest, compiled: CompiledRules): RequestAnalysis {
+    const manual = request.analysisMode === "manual";
     const sentences = splitSentences(request.rawPrompt);
     const objectives: RequestStatement[] = [];
     const explicitConstraints: RequestStatement[] = [];
     const ambiguities: string[] = [];
 
+    const extractedObjectives: RequestStatement[] = [];
+    const extractedConstraints: RequestStatement[] = [];
+
     for (const sentence of sentences) {
-      if (isProhibition(sentence)) {
-        explicitConstraints.push({ text: normalizeConstraint(sentence), provenance: "explicit", source: "prompt", excerpt: sentence });
+      if (isProhibition(sentence, compiled)) {
+        extractedConstraints.push({ text: normalizeConstraint(sentence), provenance: "explicit", source: "prompt", excerpt: sentence });
       } else {
-        for (const part of splitCompoundObjective(sentence)) {
-          objectives.push({ text: stripTerminalPunctuation(part), provenance: "explicit", source: "prompt", excerpt: sentence });
+        for (const part of splitCompoundObjective(sentence, compiled)) {
+          extractedObjectives.push({ text: stripTerminalPunctuation(part), provenance: "explicit", source: "prompt", excerpt: sentence });
         }
-        for (const hedge of HEDGE_PATTERNS) {
-          if (hedge.pattern.test(sentence)) ambiguities.push(`${hedge.label}: "${sentence}"`);
-        }
+      }
+      for (const hedge of compiled.hedges) {
+        if (hedge.pattern.test(sentence)) ambiguities.push(`${hedge.label}: "${sentence}"`);
       }
     }
 
+    // In manual mode the human-edited lists replace the extraction; items that still match
+    // an extracted statement keep their prompt provenance so only real edits show as caller-supplied.
+    const fromCaller = (text: string, extracted: RequestStatement[]): RequestStatement =>
+      extracted.find((s) => s.text.toLowerCase() === text.toLowerCase()) ?? { text, provenance: "explicit", source: "caller" };
+
+    if (!manual) {
+      objectives.push(...extractedObjectives);
+      explicitConstraints.push(...extractedConstraints);
+    }
     for (const objective of request.requestedObjectives ?? []) {
-      if (objective.trim()) objectives.push({ text: objective.trim(), provenance: "explicit", source: "caller" });
+      if (objective.trim()) objectives.push(manual ? fromCaller(objective.trim(), extractedObjectives) : { text: objective.trim(), provenance: "explicit", source: "caller" });
     }
     for (const constraint of request.explicitConstraints ?? []) {
-      if (constraint.trim()) explicitConstraints.push({ text: constraint.trim(), provenance: "explicit", source: "caller" });
+      if (constraint.trim()) explicitConstraints.push(manual ? fromCaller(constraint.trim(), extractedConstraints) : { text: constraint.trim(), provenance: "explicit", source: "caller" });
     }
 
     if (!objectives.length) ambiguities.push("no explicit objective could be identified in the request");
 
     const explicitlyForbiddenResources = uniqueResources(
-      explicitConstraints.flatMap((constraint) => extractResources(constraint.excerpt ?? constraint.text))
+      explicitConstraints.flatMap((constraint) => extractResources(constraint.excerpt ?? constraint.text, compiled))
     );
     const explicitlyRequestedResources = uniqueResources(
-      objectives.flatMap((objective) => extractResources(objective.excerpt ?? objective.text))
+      objectives.flatMap((objective) => extractResources(objective.excerpt ?? objective.text, compiled))
     );
 
     return {
@@ -188,11 +122,12 @@ export class RequestAnalyzer {
       requestId: request.id,
       objectives,
       explicitConstraints,
-      inferredExpectations: inferExpectations(objectives, explicitlyRequestedResources),
+      inferredExpectations: inferExpectations(objectives, compiled),
       explicitlyRequestedResources,
       explicitlyForbiddenResources,
       ambiguities,
       analyzer: "deterministic",
+      rulesRevision: compiled.rules.revision,
       createdAt: new Date().toISOString()
     };
   }
@@ -206,18 +141,15 @@ export function splitSentences(text: string): string[] {
     .filter((sentence) => sentence.length > 0);
 }
 
-export function isProhibition(sentence: string): boolean {
-  return PROHIBITION_PATTERNS.some((pattern) => pattern.test(sentence));
+export function isProhibition(sentence: string, compiled: CompiledRules = DEFAULT_COMPILED): boolean {
+  return compiled.prohibitions.some((pattern) => pattern.test(sentence));
 }
 
-export function extractResources(text: string): RequestResource[] {
-  const lowered = text.toLowerCase();
+export function extractResources(text: string, compiled: CompiledRules = DEFAULT_COMPILED): RequestResource[] {
   const resources: RequestResource[] = [];
-  for (const [category, terms] of Object.entries(RESOURCE_LEXICON) as Array<[RequestResourceCategory, string[]]>) {
-    for (const term of terms) {
-      if (new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}([^a-z0-9]|$)`, "i").test(lowered)) {
-        resources.push({ resource: term, category, provenance: "explicit", excerpt: text });
-      }
+  for (const entry of compiled.lexicon) {
+    if (entry.pattern.test(text)) {
+      resources.push({ resource: entry.term, category: entry.category, provenance: "explicit", excerpt: text });
     }
   }
   return resources;
@@ -236,25 +168,18 @@ export function stem(word: string): string {
   return word.replace(/(ing|ed|es|s)$/i, (match, _group, offset) => (offset > 3 ? "" : match));
 }
 
-function inferExpectations(objectives: RequestStatement[], requested: RequestResource[]): RequestStatement[] {
-  const expectations: RequestStatement[] = [];
+function inferExpectations(objectives: RequestStatement[], compiled: CompiledRules): RequestStatement[] {
+  if (!objectives.length) return [];
   const text = objectives.map((objective) => objective.text.toLowerCase()).join(" ");
-  if (requested.some((resource) => resource.category === "tests")) {
-    expectations.push({ text: "Tests are expected to be executed", provenance: "inferred", source: "analyzer" });
-  }
-  if (/\b(fix|bug|regression|broken|fail)/.test(text)) {
-    expectations.push({ text: "Existing behavior outside the bug should remain unchanged", provenance: "inferred", source: "analyzer" });
-  }
-  if (objectives.length) {
-    expectations.push({ text: "Only the requested scope should change", provenance: "inferred", source: "analyzer" });
-  }
-  return expectations;
+  return compiled.expectations
+    .filter((expectation) => expectation.when.test(text))
+    .map((expectation) => ({ text: expectation.text, provenance: "inferred" as const, source: "analyzer" as const }));
 }
 
-function splitCompoundObjective(sentence: string): string[] {
+function splitCompoundObjective(sentence: string, compiled: CompiledRules): string[] {
   const parts = sentence.split(/\s+and\s+/i);
   if (parts.length < 2) return [sentence];
-  const allImperative = parts.every((part) => IMPERATIVE_VERBS.includes(part.trim().split(/\s+/)[0]?.toLowerCase() ?? ""));
+  const allImperative = parts.every((part) => compiled.imperativeVerbs.has(part.trim().split(/\s+/)[0]?.toLowerCase() ?? ""));
   return allImperative ? parts.map((part) => part.trim()) : [sentence];
 }
 
@@ -280,6 +205,3 @@ function uniqueResources(resources: RequestResource[]): RequestResource[] {
   });
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

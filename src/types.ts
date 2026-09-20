@@ -1,7 +1,12 @@
+import type { RequestAnalyzerRules } from "./request/requestRules.js";
+
+export type { RequestAnalyzerRules };
+
 export type RunStatus =
   | "pending"
   | "starting"
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "stopping"
@@ -79,7 +84,40 @@ export interface CreateRunRequest {
   requestId?: string;
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
+  /**
+   * Keep stdin open and allocate a TTY so a human can drive the agent's own CLI inside the
+   * sandbox (`periscope codex`); Docker only. The run ends when the CLI exits.
+   */
+  interactive?: boolean;
 }
+
+/** A repo plus the saved sandbox settings New request starts from when the project is opened. */
+export interface Project {
+  id: string;
+  name: string;
+  repoPath: string;
+  branch?: string;
+  /** Agent adapter kind (`claude_code`, `codex`, ...); undefined = shell command. */
+  agentKind?: string;
+  runtime: RuntimeProviderKind;
+  scope: ProjectScope;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+export interface ProjectScope {
+  /** Paths relative to the repo ("/workspace" = whole repo) with the access the builder gets. */
+  folders: FilePermission[];
+  hosts: string[];
+  secrets: string[];
+  mcpServers: string[];
+  tools: string[];
+}
+
+export type ProjectInput = Omit<Project, "id" | "createdAt" | "updatedAt" | "lastOpenedAt">;
 
 export interface AgentIntentDraft {
   goal: string;
@@ -231,6 +269,22 @@ export interface RunRecord {
   workspaceAccess?: "read_only" | "read_write";
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
+  projectId?: string;
+  interactive?: boolean;
+  /** Branch/PR created from this run's reviewed diff after human approval. */
+  pullRequest?: RunPullRequest;
+}
+
+export interface RunPullRequest {
+  branch: string;
+  commit: string;
+  baseHead?: string | null;
+  pushed: boolean;
+  remote?: string;
+  url?: string;
+  compareUrl?: string;
+  createdAt: string;
+  createdBy?: string;
 }
 
 export type FindingSource = "policy" | "intent_comparison" | "request_intent_comparison" | "reviewer";
@@ -244,7 +298,15 @@ export type FindingType =
   | "code_quality"
   | "sensitive_change"
   | "missing_action"
+  | "constraint_violation"
   | "other";
+/**
+ * Where in the chain the drift happened:
+ * request_drift — contradicts what the human asked (explicit constraint or forbidden resource);
+ * plan_drift — differs from the agent's own declared intent;
+ * permission_violation — exceeded the enforced/granted permission scope.
+ */
+export type FindingClassification = "request_drift" | "plan_drift" | "permission_violation";
 export type FindingStatus = "open" | "resolving" | "re_reviewing" | "resolved" | "dismissed";
 
 export interface FindingEvidence {
@@ -268,6 +330,7 @@ export interface Finding {
   reviewId?: string;
   source: FindingSource;
   type: FindingType;
+  classification?: FindingClassification;
   severity: EventSeverity;
   title: string;
   description: string;
@@ -293,7 +356,7 @@ export interface Review {
   runId: string;
   builderAgentId: string;
   reviewerAgentId: string;
-  status: "pending" | "reviewing" | "needs_human" | "approved" | "failed";
+  status: "pending" | "reviewing" | "needs_human" | "approved" | "rejected" | "failed";
   filesTotal: number;
   filesReviewed: number;
   cleanFiles: number;
@@ -305,6 +368,8 @@ export interface Review {
   completedAt?: string;
   approvedAt?: string;
   approval?: { actor?: string; reason?: string };
+  rejectedAt?: string;
+  rejection?: { actor?: string; reason?: string };
   failureReason?: string;
 }
 
@@ -337,6 +402,51 @@ export interface BehaviorSummary {
   tests: Array<{ command: string; passed?: boolean; eventIds: string[] }>;
 }
 
+/**
+ * Additions an agent asks for mid-run when it discovers its declared intent is too narrow.
+ * Every list is additive to the current intent / permission snapshot; nothing is removed.
+ */
+export interface IntentAmendmentChanges {
+  plannedActions?: string[];
+  expectedFiles?: string[];
+  expectedDependencies?: string[];
+  expectedCommands?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedTools?: string[];
+  expectedSecrets?: string[];
+}
+
+export type IntentAmendmentStatus = "pending" | "approved" | "denied";
+
+export interface IntentAmendment {
+  id: string;
+  runId: string;
+  taskId: string;
+  agentId: string;
+  /** Intent in force when the amendment was requested. */
+  intentId?: string;
+  /** Intent created by approving this amendment (supersedes `intentId`). */
+  resultingIntentId?: string;
+  requestId?: string;
+  reason: string;
+  changes: IntentAmendmentChanges;
+  /** Extra capabilities requested alongside the plan change. */
+  permissions: PermissionSnapshot;
+  status: IntentAmendmentStatus;
+  /** How the agent asked: control-channel HTTP call or a protocol line on stdout. */
+  channel: "control_channel" | "agent_output";
+  decision?: {
+    actor?: string;
+    reason?: string;
+    at: string;
+    /** Permission kinds that took effect in the live sandbox vs. those only recorded for the next run. */
+    appliedLive: Array<keyof PermissionSnapshot>;
+    deferred: Array<keyof PermissionSnapshot>;
+  };
+  createdAt: string;
+}
+
 export interface HumanRequest {
   id: string;
   taskId: string;
@@ -344,10 +454,14 @@ export interface HumanRequest {
   rawPrompt: string;
   explicitConstraints?: string[];
   requestedObjectives?: string[];
+  /** `manual`: the human reviewed/edited the extracted lists, so the prompt is not re-parsed for objectives/constraints. */
+  analysisMode?: "rules" | "manual";
   context?: {
     attachments?: string[];
     metadata?: Record<string, unknown>;
   };
+  /** Authenticated operator who recorded the request. */
+  createdBy?: string;
   createdAt: string;
 }
 
@@ -387,6 +501,8 @@ export interface RequestAnalysis {
   explicitlyForbiddenResources: RequestResource[];
   ambiguities: string[];
   analyzer: "deterministic";
+  /** Revision of the editable rule set that produced this analysis (0 = built-in defaults). */
+  rulesRevision?: number;
   createdAt: string;
 }
 
@@ -405,6 +521,7 @@ export interface AlignmentSummary {
   intentToBehavior: AlignmentSegment;
   behaviorToResult?: AlignmentSegment;
   counts: {
+    constraintViolations: number;
     undeclaredFiles: number;
     undeclaredDependencies: number;
     undeclaredNetworkDestinations: number;
@@ -433,9 +550,11 @@ export interface ResultSummary {
     findingIds: string[];
     approvedAt?: string;
     approval?: Review["approval"];
+    rejectedAt?: string;
+    rejection?: Review["rejection"];
   };
   findings: { total: number; open: number; resolved: number; dismissed: number };
-  approvalStatus: "approved" | "needs_human" | "pending" | "not_reviewed";
+  approvalStatus: "approved" | "rejected" | "needs_human" | "pending" | "not_reviewed";
 }
 
 export type TimelineEntryKind =
@@ -479,8 +598,28 @@ export interface TimelineEntry {
   };
 }
 
+export type UserRole = "admin" | "operator";
+
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  /** Absent for accounts that only sign in through Google. */
+  salt?: string;
+  passwordHash?: string;
+  /** Google's stable account identifier, set once the account has signed in with Google. */
+  googleSubject?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+/** A user without the credential material, safe to return from the API. */
+export type PublicUser = Omit<User, "salt" | "passwordHash">;
+
 export interface StoredData {
   runs: RunRecord[];
+  users: User[];
   events: AgentEvent[];
   permissions: Record<string, PermissionSnapshot>;
   requests: HumanRequest[];
@@ -489,6 +628,9 @@ export interface StoredData {
   findings: Finding[];
   reviews: Review[];
   resolutions: ResolutionAttempt[];
+  requestRules?: RequestAnalyzerRules;
+  projects?: Project[];
+  intentAmendments?: IntentAmendment[];
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &

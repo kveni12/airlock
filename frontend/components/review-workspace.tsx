@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
-import { approveReview, getFiles, getReview, getReviewFindings, listFindings } from "@/lib/api";
+import { approveReview, getFiles, getReview, getReviewFindings, listFindings, rejectReview } from "@/lib/api";
 import { useResource } from "@/lib/use-resource";
 import { FindingCard } from "./finding-card";
+import { reviewSummary } from "./review-queue";
 import { ActionButton, Empty, ErrorBanner, formatDateTime } from "./ui";
 
 export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
@@ -27,7 +28,7 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
 
   const { review, findings, otherFindings, files } = data;
   const open = findings.filter((f) => f.status === "open" || f.status === "resolving" || f.status === "re_reviewing");
-  const statusClass = review.status === "approved" ? "status-good" : review.status === "needs_human" ? "status-warn" : review.status === "failed" ? "status-bad" : "status-info";
+  const statusClass = review.status === "approved" ? "status-good" : review.status === "needs_human" ? "status-warn" : review.status === "failed" || review.status === "rejected" ? "status-bad" : "status-info";
 
   return <section>
     <Back />
@@ -37,7 +38,7 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
         <p className="eyebrow">Review</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">{review.taskId}</h1>
         <p className="mt-2 text-sm text-[#64717c]">builder {review.builderAgentId} · reviewer {review.reviewerAgentId} · <Link className="underline" href={`/runs/${review.runId}`}>run {review.runId}</Link> · {formatDateTime(review.createdAt)}</p>
-        {review.summary && <p className="mt-3 text-sm">{review.summary}</p>}
+        <p className="mt-3 text-sm">{reviewSummary(review)}</p>
         {review.failureReason && <p className="mt-3 text-sm text-[#9a3d31]">{review.failureReason}</p>}
       </div>
       <aside className="card p-5">
@@ -49,8 +50,17 @@ export function ReviewWorkspace({ reviewId }: { reviewId: string }) {
         </dl>
         <div className="mt-4 border-t pt-4">
           {review.status === "approved" ? <p className="text-sm text-[#14623f]">Approved {review.approvedAt && formatDateTime(review.approvedAt)}{review.approval?.actor && ` by ${review.approval.actor}`}{review.approval?.reason && <span className="block text-xs text-[#64717c]">{review.approval.reason}</span>}</p>
-            : <ActionButton disabled={review.status !== "needs_human" || open.length > 0} onClick={async () => { await approveReview(review.id, { actor: "human", reason: "Approved from review workspace" }); await refresh(); }}>Approve review{open.length > 0 && ` (${open.length} unresolved)`}</ActionButton>}
-          {review.status === "needs_human" && open.length > 0 && <p className="mt-2 text-xs text-[#64717c]">Resolve or dismiss every unresolved finding before approving.</p>}
+            : review.status === "rejected" ? <p className="text-sm text-[#9a3d31]">Rejected {review.rejectedAt && formatDateTime(review.rejectedAt)}{review.rejection?.actor && ` by ${review.rejection.actor}`}{review.rejection?.reason && <span className="block text-xs text-[#64717c]">{review.rejection.reason}</span>}</p>
+            : <div className="flex flex-wrap gap-2">
+              <ActionButton disabled={review.status !== "needs_human" || open.length > 0} onClick={async () => { await approveReview(review.id, { actor: "human", reason: "Approved from review workspace" }); await refresh(); }}>Approve{open.length > 0 && ` (${open.length} unresolved)`}</ActionButton>
+              <ActionButton variant="danger" disabled={review.status !== "needs_human"} onClick={async () => {
+                const reason = window.prompt("Why are you rejecting this run's changes?", "");
+                if (reason === null) return;
+                await rejectReview(review.id, { actor: "human", reason: reason || undefined });
+                await refresh();
+              }}>Reject</ActionButton>
+            </div>}
+          {review.status === "needs_human" && open.length > 0 && <p className="mt-2 text-xs text-[#64717c]">Resolve or dismiss every unresolved finding before approving, or reject the run outright.</p>}
         </div>
       </aside>
     </div>

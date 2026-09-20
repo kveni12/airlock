@@ -5,9 +5,11 @@ import type { SandboxOutput } from "../runtime/sandboxProvider.js";
 const EVENT_PREFIX = "AGENTGUARD_EVENT ";
 const SELF_REPORTED_CATEGORIES = new Set<EventCategory>(["agent", "process", "mcp"]);
 const MAX_OUTPUT_TEXT = 16 * 1024;
+/** Kernel refusals surfaced by shells/tools when a bind mount is read-only, e.g. `sh: cannot create infra/x: Read-only file system`. */
+const READ_ONLY_REFUSAL = /(?:cannot (?:create|touch|remove|move|overwrite|open|mkdir|create directory)\s+(?:regular file |directory )?['"]?([^'":]+?)['"]?:\s*)?(Read-only file system|EROFS)/i;
 
 type ObservedEvent = Pick<EventInput, "category" | "action"> &
-  Partial<Pick<EventInput, "resource" | "allowed" | "severity" | "metadata">>;
+  Partial<Pick<EventInput, "resource" | "allowed" | "severity" | "metadata" | "evidenceSource" | "verification">>;
 
 export class AgentOutputMonitor {
   private sequence = 0;
@@ -15,7 +17,12 @@ export class AgentOutputMonitor {
 
   constructor(
     private readonly run: RunRecord,
-    private readonly events: EventCollector
+    private readonly events: EventCollector,
+    private readonly options: {
+      filesystemEnforced?: boolean;
+      /** Handles `AGENTGUARD_EVENT {"category":"agent","action":"intent_amendment","metadata":{reason,changes,permissions}}`. */
+      onAmendmentRequest?: (payload: unknown) => Promise<void>;
+    } = {}
   ) {}
 
   observe(output: SandboxOutput): void {
@@ -32,6 +39,11 @@ export class AgentOutputMonitor {
   private async process(output: SandboxOutput, sequence: number): Promise<void> {
     if (output.line.startsWith(EVENT_PREFIX)) {
       const event = parseAgentGuardEvent(output.line.slice(EVENT_PREFIX.length));
+      if (event.category === "agent" && event.action === "intent_amendment" && this.options.onAmendmentRequest) {
+        const { reportedByAgent: _reported, ...payload } = event.metadata ?? {};
+        await this.options.onAmendmentRequest(payload);
+        return;
+      }
       await this.emit(event, output, sequence, "agentguard_protocol");
       return;
     }
@@ -42,6 +54,27 @@ export class AgentOutputMonitor {
       if (normalized.length) {
         for (const event of normalized) await this.emit(event, output, sequence, "vendor_jsonl");
         return;
+      }
+    }
+
+    if (this.options.filesystemEnforced) {
+      const prevented = detectPreventedWrite(output.line);
+      if (prevented) {
+        await this.emit(
+          {
+            category: "filesystem",
+            action: "write_prevented",
+            resource: prevented.path,
+            allowed: false,
+            severity: "medium",
+            evidenceSource: "runtime",
+            verification: "inferred",
+            metadata: { text: output.line.slice(0, MAX_OUTPUT_TEXT), enforcement: "runtime_mount" }
+          },
+          output,
+          sequence,
+          "raw"
+        );
       }
     }
 
@@ -94,6 +127,14 @@ export class AgentOutputMonitor {
       }
     });
   }
+}
+
+export function detectPreventedWrite(line: string): { path?: string } | undefined {
+  const match = READ_ONLY_REFUSAL.exec(line);
+  if (!match) return undefined;
+  const raw = match[1]?.trim();
+  if (!raw) return {};
+  return { path: raw.startsWith("/") ? raw : `/workspace/${raw.replace(/^\.\//, "")}` };
 }
 
 function parseAgentGuardEvent(json: string): ObservedEvent {
