@@ -8,7 +8,8 @@
    folder permissions and allowed hosts, adjust them, and save.
 4. The project page shows the launch command. In that folder run the displayed `periscope codex --project …` or
    `periscope claude --project …` command. Sign in with your agent account.
-   The saved description becomes the initial agent prompt and is recorded as a human-request snapshot for this run.
+   The saved description is recorded as a permission-intent snapshot for this run.
+   It is not sent to the agent as a prompt; enter your task in the terminal.
 5. Open the session from **Projects** or **Runs** to see messages, actions,
    changed files, and the run's permission snapshot. Edits apply immediately.
 

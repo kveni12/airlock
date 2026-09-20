@@ -26,7 +26,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   return <div className="space-y-4">
     <Section eyebrow="Local CLI" title={p.name}>
       <p className="text-sm text-[#64717c]">Run this in your terminal on the machine running Periscope. {agent.name} signs in with your {p.agentKind === "claude_code" ? "Claude" : "ChatGPT"} account. Allowed edits change this folder immediately.</p>
-      {p.humanIntent && <p className="mt-3 rounded-lg bg-[#f6f2ec] p-3 text-sm"><strong>Task:</strong> {p.humanIntent}</p>}
+      {p.humanIntent && <p className="mt-3 rounded-lg bg-[#f6f2ec] p-3 text-sm"><strong>Permission description:</strong> {p.humanIntent}</p>}
       <pre className="mono my-3 overflow-x-auto rounded-lg bg-[#f6f2ec] p-3 text-sm">{launch}</pre>
       <p className="mb-3 text-sm text-[#64717c]">Sessions appear below automatically. Open a workbench to watch file and network activity, inspect permissions, or stop the agent.</p>
       {runs.error && <ErrorBanner message={runs.error} onRetry={runs.refresh} />}

@@ -157,7 +157,9 @@ try {
         authSaveTimer = setInterval(() => authCache.save(authContainer), 10_000);
       }
     }
-    const launch = session ? session.launch + (project.humanIntent?.trim() ? ` ${shellQuote(project.humanIntent)}` : "") : "exec bash --noprofile --norc";
+    // The project description configures/audits permissions; the user supplies
+    // their actual task interactively after the agent opens.
+    const launch = session ? session.launch : "exec bash --noprofile --norc";
     // Codex owns its TUI and must receive Docker's terminal directly. Nesting a
     // Python PTY loses dimensions/resize and can leave Codex rendering at 0x0.
     const recorder = local && !session ? await readFile(path.join(root, "runtime/terminal-recorder.py"), "utf8") : undefined;

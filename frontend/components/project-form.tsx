@@ -52,10 +52,10 @@ export function ProjectForm({ initial, submitLabel, onSubmit, onCancel }: { init
       <RepoPathField value={draft.repoPath} onChange={(repoPath) => { set({ repoPath, scope: { ...draft.scope, folders: [{ path: "/workspace", access: "read" }] } }); setWarnings([]); setSummary([]); }} />
     </section>
     <section className="space-y-3"><h3 className="font-semibold">2. Describe what {agent.name} may do</h3>
-      <textarea aria-label="Task description" className={inputCls} rows={3} value={draft.humanIntent ?? ""} onChange={(e) => { set({ humanIntent: e.target.value }); setSummary([]); setWarnings([]); }} placeholder="Fix the greeting in src. Add tests in tests. Do not change infra." />
-      <p className="text-xs text-[#64717c]">Name the folders you want edited. Regex rules suggest permissions; you review them before saving. You can also configure permissions directly below.</p>
+      <textarea aria-label="Permission description" className={inputCls} rows={3} value={draft.humanIntent ?? ""} onChange={(e) => { set({ humanIntent: e.target.value }); setSummary([]); setWarnings([]); }} placeholder="Modify src. Modify tests. Do not modify infra. Do not read or access sensitive_data." />
+      <p className="text-xs text-[#64717c]">Describe permissions here; enter your task in the agent terminal after launch. This description is not sent as a prompt. Review the suggested permissions before saving, or configure them directly below.</p>
       <ActionButton variant="secondary" disabled={busy || !draft.repoPath || !draft.humanIntent?.trim()} onClick={suggest}>{busy ? "Extracting…" : "Suggest permissions from description"}</ActionButton>
-      {!!summary.length && <div className="rounded-lg bg-[#f6f2ec] p-3 text-sm"><p className="font-semibold">Understood task</p><ul className="mt-2 list-disc pl-5">{summary.map((s, i) => <li key={i}>{s}</li>)}</ul></div>}
+      {!!summary.length && <div className="rounded-lg bg-[#f6f2ec] p-3 text-sm"><p className="font-semibold">Extracted permissions</p><ul className="mt-2 list-disc pl-5">{summary.map((s, i) => <li key={i}>{s}</li>)}</ul></div>}
       {!!warnings.length && <ul className="space-y-1 text-xs text-[#815017]">{warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
     </section>
     <section className="space-y-3"><h3 className="font-semibold">3. Review permissions</h3>
