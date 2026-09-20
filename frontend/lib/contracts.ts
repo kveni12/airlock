@@ -1,4 +1,4 @@
-export type RunStatus = "pending" | "starting" | "running" | "completed" | "failed" | "stopping" | "stopped";
+export type RunStatus = "pending" | "starting" | "running" | "paused" | "completed" | "failed" | "stopping" | "stopped";
 export type EventCategory = "agent" | "filesystem" | "process" | "network" | "secret" | "mcp" | "git" | "policy" | "runtime";
 export type EventSeverity = "info" | "low" | "medium" | "high" | "critical";
 export type EvidenceSource = "runtime" | "filesystem" | "proxy" | "git" | "agent_reported" | "reviewer";

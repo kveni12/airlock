@@ -6,6 +6,7 @@ export type RunStatus =
   | "pending"
   | "starting"
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "stopping"
@@ -352,6 +353,51 @@ export interface BehaviorSummary {
   tests: Array<{ command: string; passed?: boolean; eventIds: string[] }>;
 }
 
+/**
+ * Additions an agent asks for mid-run when it discovers its declared intent is too narrow.
+ * Every list is additive to the current intent / permission snapshot; nothing is removed.
+ */
+export interface IntentAmendmentChanges {
+  plannedActions?: string[];
+  expectedFiles?: string[];
+  expectedDependencies?: string[];
+  expectedCommands?: string[];
+  expectedNetwork?: string[];
+  expectedMcpServers?: string[];
+  expectedTools?: string[];
+  expectedSecrets?: string[];
+}
+
+export type IntentAmendmentStatus = "pending" | "approved" | "denied";
+
+export interface IntentAmendment {
+  id: string;
+  runId: string;
+  taskId: string;
+  agentId: string;
+  /** Intent in force when the amendment was requested. */
+  intentId?: string;
+  /** Intent created by approving this amendment (supersedes `intentId`). */
+  resultingIntentId?: string;
+  requestId?: string;
+  reason: string;
+  changes: IntentAmendmentChanges;
+  /** Extra capabilities requested alongside the plan change. */
+  permissions: PermissionSnapshot;
+  status: IntentAmendmentStatus;
+  /** How the agent asked: control-channel HTTP call or a protocol line on stdout. */
+  channel: "control_channel" | "agent_output";
+  decision?: {
+    actor?: string;
+    reason?: string;
+    at: string;
+    /** Permission kinds that took effect in the live sandbox vs. those only recorded for the next run. */
+    appliedLive: Array<keyof PermissionSnapshot>;
+    deferred: Array<keyof PermissionSnapshot>;
+  };
+  createdAt: string;
+}
+
 export interface HumanRequest {
   id: string;
   taskId: string;
@@ -531,6 +577,7 @@ export interface StoredData {
   reviews: Review[];
   resolutions: ResolutionAttempt[];
   requestRules?: RequestAnalyzerRules;
+  intentAmendments?: IntentAmendment[];
 }
 
 export type EventInput = Partial<Omit<AgentEvent, "id" | "timestamp">> &
