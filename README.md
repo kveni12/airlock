@@ -1,3 +1,5 @@
+[Try the Demo here](https://combining-holland-howto-bless.trycloudflare.com)
+---
 # Periscope
 
 Periscope governs AI coding-agent runs by recording intent and permissions, executing builders in disposable sandboxes, collecting normalized telemetry, comparing intent with behavior, reviewing changes, resolving findings in new sandboxes, and recording human approval. Lima VMs are the default runtime; Docker remains an optional compatibility provider.
