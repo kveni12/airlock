@@ -206,16 +206,16 @@ export function NewRequestFlow() {
   const inputCls = "mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm";
   const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#64717c]";
   const agentWorkspaceFields = <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
-    <p className="text-sm font-semibold">Coding agent &amp; project</p>
+    <div><p className="text-sm font-semibold">Agent &amp; project</p><p className="mt-1 text-xs text-[#64717c]">The same agent type is used in two separate runs: a read-only planner first, then a builder after you approve the plan.</p></div>
     {project ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#d1b191] bg-[#f6f2ec] px-3 py-2 text-sm">
       <span>Project <strong>{project.name}</strong> is open. Its repository, runtime, agent, and access settings are loaded below.</span>
       <Link href={`/projects/${encodeURIComponent(project.id)}`} className="underline">Edit project settings</Link>
       <button type="button" onClick={detachProject} className="text-[#64717c] underline">Start without a project</button>
     </div> : <p className="text-xs text-[#64717c]">Tip: <Link href="/projects" className="underline">open a project</Link> to load its saved settings.</p>}
     <div className="grid gap-3 md:grid-cols-2">
-      <label className="block text-sm"><span className={labelCls}>Coding agent</span>
+      <label className="block text-sm"><span className={labelCls}>Agent type</span>
         <select value={agentChoice} onChange={(e) => chooseAgent(e.target.value)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
-          <option value="script">Shell command (scripted demo builder / custom)</option>
+          <option value="script">Shell commands (scripted demo / custom)</option>
           {(profiles.data ?? []).filter((p) => PICKABLE_KINDS.includes(p.kind)).map((p) => <option key={p.kind} value={p.kind}>{p.displayName}</option>)}
         </select>
         {profiles.error && <span className="mt-1 block text-xs text-[#9a3d31]">Could not load agent profiles: {profiles.error}</span>}
@@ -276,21 +276,24 @@ export function NewRequestFlow() {
 
     <div className="flex justify-center text-[#98a4ad]"><ArrowDown className="size-5" /></div>
 
-    <Section eyebrow="Step 2" title="Review plan and access" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
-      {!requestResult ? <p className="text-sm text-[#64717c]">Record the request first.</p> : !intent ? <div className="space-y-3">
+    <Section eyebrow="Step 2" title="Planner: generate and review the plan" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
+      {requestResult && <PlannerBuilderGuide />}
+      {!requestResult ? <p className="text-sm text-[#64717c]">Record the request first.</p> : !intent ? <div className="mt-4 space-y-3">
         {agentWorkspaceFields}
         <AccessScopeEditor scope={scope} onChange={setScope} provider={provider} plannerOnly={intentMode === "planner"} repoPath={repoPath} />
-        {intentMode === "planner" && <p className="text-sm text-[#64717c]">Generating a plan lets the selected agent inspect a read-only copy of the project before any coding begins.</p>}
+        {intentMode === "planner" && <p className="text-sm text-[#64717c]">The planner can inspect the allowed project files, but the runtime prevents it from changing them. It must propose its plan before any coding begins.</p>}
         <details className="rounded-xl border bg-white p-3 text-sm">
           <summary className="cursor-pointer font-semibold">Advanced plan options</summary>
           <div className="mt-3 space-y-3">
-            <label className="block"><span className={labelCls}>Plan source</span><select value={intentMode} onChange={(e) => setIntentMode(e.target.value as "planner" | "manual")} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"><option value="planner">Generate automatically</option><option value="manual">Import plan JSON</option></select></label>
-            {intentMode === "planner" && !usingRealAgent && <label className="block"><span className={labelCls}>Planning command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className={inputCls} /></label>}
+            <label className="block"><span className={labelCls}>Planner agent ID</span><input value={agentId} onChange={(e) => setAgentId(e.target.value)} className={inputCls} /><span className="mt-1 block text-xs text-[#64717c]">This is the planner&apos;s audit-trail label; the agent type is selected above.</span></label>
+            <label className="block"><span className={labelCls}>Plan source</span><select value={intentMode} onChange={(e) => setIntentMode(e.target.value as "planner" | "manual")} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"><option value="planner">Run planner automatically</option><option value="manual">Import plan JSON</option></select></label>
+            {intentMode === "planner" && !usingRealAgent && <label className="block"><span className={labelCls}>Planner command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className={inputCls} /></label>}
             {intentMode === "manual" && <label className="block"><span className={labelCls}>Plan JSON</span><textarea value={intentJson} onChange={(e) => setIntentJson(e.target.value)} rows={14} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-xs" /></label>}
           </div>
         </details>
-        <ActionButton onClick={async () => { try { await submitIntent(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>{intentMode === "planner" ? "Generate plan" : "Import plan"}</ActionButton>
-      </div> : <div className="space-y-4">
+        <ActionButton onClick={async () => { try { await submitIntent(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>{intentMode === "planner" ? "Run planner (read only)" : "Import plan"}</ActionButton>
+      </div> : <div className="mt-4 space-y-4">
+        <div className="rounded-xl border border-[#9fc8b1] bg-[#edf7f1] p-4"><p className="text-sm font-semibold text-[#14623f]">Planner output</p><p className="mt-1 text-sm text-[#3d4a55]">The builder has not run yet. Review this proposed plan, compare it with your request, adjust access if needed, and approve it before coding starts.</p></div>
         <dl className="space-y-3">
           <KeyValue label="Goal">{intent.goal}</KeyValue>
           <KeyValue label="Planned actions"><ol className="list-decimal space-y-1 pl-5 text-sm">{intent.plannedChanges.map((a, i) => <li key={i}>{a}</li>)}</ol></KeyValue>
@@ -329,13 +332,13 @@ export function NewRequestFlow() {
 
     <div className="flex justify-center text-[#98a4ad]"><ArrowDown className="size-5" /></div>
 
-    <Section eyebrow="Step 3" title="Start coding">
-      {!intent ? <p className="text-sm text-[#64717c]">Generate a plan first so Periscope can compare the requested work with what the agent intends to do.</p> : <div className="space-y-3">
-        <p className="text-sm text-[#64717c]">{usingRealAgent ? selectedProfile?.displayName ?? agentChoice : "The configured command"} will work in <span className="mono">{repoPath}</span> using {provider} isolation.</p>
+    <Section eyebrow="Step 3" title="Builder: start coding">
+      {!intent ? <p className="text-sm text-[#64717c]">Run the planner first so you can audit and approve its proposed work before the builder changes any files.</p> : <div className="space-y-3">
+        <p className="text-sm text-[#64717c]">After plan approval, {usingRealAgent ? selectedProfile?.displayName ?? agentChoice : "the configured command"} will run as the builder in <span className="mono">{repoPath}</span> using {provider} isolation.</p>
         <details className="rounded-xl border bg-white p-3 text-sm">
           <summary className="cursor-pointer font-semibold">Advanced coding options</summary>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="block"><span className={labelCls}>Agent ID</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className={inputCls} /></label>
+            <label className="block"><span className={labelCls}>Builder agent ID</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className={inputCls} /></label>
             {!usingRealAgent && <label className="block"><span className={labelCls}>Coding command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className={inputCls} /></label>}
           </div>
         </details>
@@ -347,9 +350,29 @@ export function NewRequestFlow() {
           <details className="mt-2 text-sm"><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-[#64717c]">Adjust access</summary><div className="mt-2"><AccessScopeEditor scope={scope} onChange={setScope} provider={provider} repoPath={repoPath} /></div></details>
         </div>
         {blocked && <p className="text-sm text-[#9a3d31]">{blocked}</p>}
-        <ActionButton disabled={Boolean(blocked)} onClick={async () => { try { await startRun(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Start coding</ActionButton>
+        <ActionButton disabled={Boolean(blocked)} onClick={async () => { try { await startRun(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Start builder</ActionButton>
       </div>}
     </Section>
+  </div>;
+}
+
+function PlannerBuilderGuide() {
+  return <div className="grid gap-2 md:grid-cols-3" aria-label="Planner and builder workflow">
+    <div className="rounded-xl border border-[#9fc8b1] bg-[#edf7f1] p-3">
+      <span className="status status-good">1 · Planner</span>
+      <p className="mt-2 text-sm font-semibold">Proposes the work</p>
+      <p className="mt-1 text-xs leading-5 text-[#64717c]">Can read the allowed files, cannot edit them, and produces the plan shown below.</p>
+    </div>
+    <div className="rounded-xl border border-[#e0b95c] bg-[#fdf7e7] p-3">
+      <span className="status status-warn">2 · You</span>
+      <p className="mt-2 text-sm font-semibold">Audit and approve</p>
+      <p className="mt-1 text-xs leading-5 text-[#64717c]">Compare the plan with the request and choose the access the builder will receive.</p>
+    </div>
+    <div className="rounded-xl border bg-white p-3">
+      <span className="status status-muted">3 · Builder</span>
+      <p className="mt-2 text-sm font-semibold">Executes the approved plan</p>
+      <p className="mt-1 text-xs leading-5 text-[#64717c]">Starts only after approval and can change only the folders you marked as editable.</p>
+    </div>
   </div>;
 }
 

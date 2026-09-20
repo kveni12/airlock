@@ -88,7 +88,7 @@ describe("intent observability end-to-end (process runtime)", () => {
     expect(intent.alignment?.status).toBe("aligned");
     expect(intent.plannedChanges).toHaveLength(4);
 
-    const { runId } = await api<{ runId: string }>(app, "POST", "/api/runs", {
+    const builderInput = {
       taskId,
       agentId: "builder",
       repo: { path: fixture },
@@ -97,7 +97,13 @@ describe("intent observability end-to-end (process runtime)", () => {
       runtime,
       intentId: intent.id,
       cleanupWorkspace: false
-    });
+    };
+    const unapproved = await app.inject({ method: "POST", url: "/api/runs", payload: builderInput, headers: { cookie } });
+    expect(unapproved.statusCode).toBe(400);
+    expect(unapproved.json<{ error: string }>().error).toContain("requires human approval");
+
+    await api(app, "POST", `/api/intents/${intent.id}/approve`, { reason: "Plan reviewed before builder execution" });
+    const { runId } = await api<{ runId: string }>(app, "POST", "/api/runs", builderInput);
     const run = await poll(() => api<RunRecord>(app, "GET", `/api/runs/${runId}`), (r) => ["completed", "failed", "stopped"].includes(r.status));
     expect(run.status).toBe("completed");
     expect(run.requestId).toBe(request.id);
