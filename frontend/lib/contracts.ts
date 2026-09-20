@@ -1,4 +1,4 @@
-export type RunStatus = "pending" | "starting" | "running" | "completed" | "failed" | "stopping" | "stopped";
+export type RunStatus = "pending" | "starting" | "running" | "paused" | "completed" | "failed" | "stopping" | "stopped";
 export type EventCategory = "agent" | "filesystem" | "process" | "network" | "secret" | "mcp" | "git" | "policy" | "runtime";
 export type EventSeverity = "info" | "low" | "medium" | "high" | "critical";
 export type EvidenceSource = "runtime" | "filesystem" | "proxy" | "git" | "agent_reported" | "reviewer";
@@ -200,6 +200,7 @@ export interface PublicUser {
 export interface AuthStatus {
   authenticated: boolean;
   needsBootstrap: boolean;
+  googleEnabled?: boolean;
 }
 
 export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";

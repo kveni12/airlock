@@ -63,17 +63,29 @@ Every route except `/health` and `/api/auth/*` requires a session cookie.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/auth/status` | Whether the instance still needs its first administrator |
+| `GET /api/auth/status` | Whether the instance still needs its first administrator, and whether Google sign-in is available |
 | `POST /api/auth/bootstrap` | Create the first administrator with the one-time setup token from the backend log |
 | `POST /api/auth/login` | Sign in and receive the `periscope_session` cookie |
 | `POST /api/auth/logout` | Invalidate the session |
 | `GET /api/auth/me` | The signed-in operator |
 | `GET`/`POST /api/auth/users` | List/create operators (administrators only) |
+| `GET /api/auth/google/start` | Begin Google sign-in (browser redirect) |
+| `GET /api/auth/google/callback` | Google's redirect back; issues the session cookie |
 
 Passwords are at least 12 characters and stored as salted scrypt hashes. Sessions live in backend memory, so restarting the backend signs everyone out. Configuration:
 
 - `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
 - `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
+
+### Sign in with Google
+
+Optional. Create an OAuth client (Google Cloud console → APIs & Services → Credentials → OAuth client ID → Web application) with the authorized redirect URI `<your Periscope URL>/api/auth/google/callback`, then:
+
+- `PERISCOPE_GOOGLE_CLIENT_ID`, `PERISCOPE_GOOGLE_CLIENT_SECRET`: the OAuth client. Both are required; without them the login page shows only email and password.
+- `PERISCOPE_PUBLIC_URL`: the origin Periscope is served from, used to derive the redirect URI. Override it directly with `PERISCOPE_GOOGLE_REDIRECT_URI` if they differ.
+- `PERISCOPE_GOOGLE_ALLOWED_EMAILS`, `PERISCOPE_GOOGLE_ALLOWED_DOMAINS`: comma-separated addresses/domains that may create an account on first sign-in. **Both empty (the default) means no self-provisioning**: a Google account can only sign in to an operator an administrator already created, matched by email. This matters because any session can start agent runs on the host.
+
+Google accounts never get a password; an account that has both keeps working either way. The flow uses PKCE and single-use state, and the identity token is read from Google's token response over TLS rather than accepted from the browser.
 
 Scripted clients sign in and reuse the cookie, e.g. `curl -c jar -X POST localhost:3000/api/auth/login -H 'content-type: application/json' -d '{"email":"you@example.com","password":"…"}'` then `curl -b jar localhost:3000/api/runs`.
 
@@ -406,6 +418,20 @@ AGENTGUARD_EVENT {"category":"mcp","action":"tool_call","resource":"github/creat
 ```
 
 Allowed self-reported categories are `agent`, `process`, and `mcp`. Filesystem, network, policy, secret, and runtime lifecycle events remain backend-owned so an agent cannot claim that its own behavior was allowed or independently observed.
+
+### Intent amendments (asking instead of drifting)
+
+A builder that discovers it must go beyond its approved plan requests an **intent amendment** and waits; Periscope marks the run `paused` and the reviewer approves or denies it (`POST /api/intent-amendments/:id/approve|deny`, actor recorded). Approval creates a revised intent that supersedes the previous one (additive: extra planned actions, files, dependencies, commands, hosts, MCP servers, tools, secrets), merges the requested grants into the run's permissions, and reports which grants were applied live (`network` — the proxy allowlist widens immediately) versus deferred to the next run (`filesystem`, `secrets` — Docker mounts and injected env are fixed at container creation). Denial changes nothing. Every step is an event (`agent.intent_amendment_requested/approved/denied`) correlated by amendment id and linked to the previous and resulting intent.
+
+Agents ask through the sandbox control channel — a virtual host on the run's HTTP proxy, so no extra network access is needed:
+
+```text
+POST http://periscope.internal/amendments
+{"reason":"why","changes":{"expectedFiles":["infra/prod.tf"],"plannedActions":["..."]},"permissions":{"filesystem":[{"path":"infra","access":"read_write"}],"network":["registry.terraform.io"]}}
+GET  http://periscope.internal/amendments/<id>?wait=60      # long-poll until status is approved | denied
+```
+
+or, without HTTP, by printing `AGENTGUARD_EVENT {"category":"agent","action":"intent_amendment","metadata":{reason,changes,permissions}}`. Real agents receive these instructions appended to their builder prompt. `reason` and at least one change or grant are required.
 
 Every output record is line- and size-bounded, ordered per run, sent through centralized secret redaction, persisted, and streamed over SSE. Unknown output becomes `process.output`; malformed explicit protocol messages generate `runtime.telemetry_degraded` rather than disappearing silently.
 
