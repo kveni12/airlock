@@ -391,6 +391,20 @@ AGENTGUARD_EVENT {"category":"mcp","action":"tool_call","resource":"github/creat
 
 Allowed self-reported categories are `agent`, `process`, and `mcp`. Filesystem, network, policy, secret, and runtime lifecycle events remain backend-owned so an agent cannot claim that its own behavior was allowed or independently observed.
 
+### Intent amendments (asking instead of drifting)
+
+A builder that discovers it must go beyond its approved plan requests an **intent amendment** and waits; Periscope marks the run `paused` and the reviewer approves or denies it (`POST /api/intent-amendments/:id/approve|deny`, actor recorded). Approval creates a revised intent that supersedes the previous one (additive: extra planned actions, files, dependencies, commands, hosts, MCP servers, tools, secrets), merges the requested grants into the run's permissions, and reports which grants were applied live (`network` — the proxy allowlist widens immediately) versus deferred to the next run (`filesystem`, `secrets` — Docker mounts and injected env are fixed at container creation). Denial changes nothing. Every step is an event (`agent.intent_amendment_requested/approved/denied`) correlated by amendment id and linked to the previous and resulting intent.
+
+Agents ask through the sandbox control channel — a virtual host on the run's HTTP proxy, so no extra network access is needed:
+
+```text
+POST http://periscope.internal/amendments
+{"reason":"why","changes":{"expectedFiles":["infra/prod.tf"],"plannedActions":["..."]},"permissions":{"filesystem":[{"path":"infra","access":"read_write"}],"network":["registry.terraform.io"]}}
+GET  http://periscope.internal/amendments/<id>?wait=60      # long-poll until status is approved | denied
+```
+
+or, without HTTP, by printing `AGENTGUARD_EVENT {"category":"agent","action":"intent_amendment","metadata":{reason,changes,permissions}}`. Real agents receive these instructions appended to their builder prompt. `reason` and at least one change or grant are required.
+
 Every output record is line- and size-bounded, ordered per run, sent through centralized secret redaction, persisted, and streamed over SSE. Unknown output becomes `process.output`; malformed explicit protocol messages generate `runtime.telemetry_degraded` rather than disappearing silently.
 
 Representative live sequence:

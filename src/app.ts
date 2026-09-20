@@ -8,6 +8,7 @@ import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { IntentAmendmentService } from "./intent/intentAmendmentService.js";
 import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
@@ -27,6 +28,7 @@ export interface AppContext {
   runtime: RuntimeManager;
   requests: RequestService;
   intents: IntentService;
+  amendments: IntentAmendmentService;
   intentAlignment: IntentAlignmentService;
   findings: FindingService;
   analysis: BehaviorAnalysisService;
@@ -52,6 +54,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
   const intents = context?.intents ?? new IntentService(store);
+  const amendments = context?.amendments ?? new IntentAmendmentService(store, events, intents);
+  runtime.attachAmendments(amendments);
   const findings = context?.findings ?? new FindingService(store, events);
   const intentAlignment = context?.intentAlignment ?? new IntentAlignmentService(store, intents, findings);
   const analysis = context?.analysis ?? new BehaviorAnalysisService(store, findings);
@@ -408,6 +412,46 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     try {
       const body = decisionBody(request);
       return await intents.approve((request.params as { id: string }).id, body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/intent-amendments", async (request) => {
+    const { runId } = request.query as { runId?: string };
+    return { amendments: await amendments.list(runId) };
+  });
+
+  app.get("/api/intent-amendments/:id", async (request, reply) => {
+    const amendment = await amendments.get((request.params as { id: string }).id);
+    if (!amendment) return reply.code(404).send({ error: "Amendment not found" });
+    return amendment;
+  });
+
+  app.get("/api/runs/:id/intent-amendments", async (request) => {
+    return { amendments: await amendments.list((request.params as { id: string }).id) };
+  });
+
+  /** Agent-side request (also reachable from inside the sandbox via http://periscope.internal/amendments). */
+  app.post("/api/runs/:id/intent-amendments", async (request, reply) => {
+    try {
+      return reply.code(201).send(await amendments.request((request.params as { id: string }).id, request.body, "control_channel"));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/approve", async (request, reply) => {
+    try {
+      return await amendments.approve((request.params as { id: string }).id, decisionBody(request));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/deny", async (request, reply) => {
+    try {
+      return await amendments.deny((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
