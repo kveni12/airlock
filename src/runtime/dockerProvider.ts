@@ -14,6 +14,7 @@ interface DockerHandle extends SandboxHandle {
   onOutput?: SandboxCreateOptions["onOutput"];
   stdoutDecoder?: LineDecoder;
   stderrDecoder?: LineDecoder;
+  tty?: boolean;
 }
 
 export interface DockerProviderOptions {
@@ -105,6 +106,7 @@ export class DockerProvider implements SandboxProvider {
       name,
       Cmd: run.command,
       Labels: { [RUN_LABEL]: run.id },
+      ...(run.interactive ? { Tty: true, OpenStdin: true, StdinOnce: false, AttachStdin: true } : {}),
       User: user,
       WorkingDir: "/workspace",
       Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
@@ -121,7 +123,7 @@ export class DockerProvider implements SandboxProvider {
         ReadonlyRootfs: false
       }
     });
-    return { id: container.id, name, container, networkName: network?.name, onOutput: options.onOutput };
+    return { id: container.id, name, container, networkName: network?.name, onOutput: options.onOutput, tty: Boolean(run.interactive) };
   }
 
   async start(handle: SandboxHandle): Promise<void> {
@@ -133,7 +135,9 @@ export class DockerProvider implements SandboxProvider {
     docker.stderrDecoder = new LineDecoder("stderr", (line) => docker.onOutput?.(line));
     stdout.on("data", (chunk: Buffer) => docker.stdoutDecoder?.write(chunk));
     stderr.on("data", (chunk: Buffer) => docker.stderrDecoder?.write(chunk));
-    docker.container.modem.demuxStream(output, stdout, stderr);
+    // A TTY container has one multiplexed stream (no stdout/stderr framing).
+    if (docker.tty) output.on("data", (chunk: Buffer) => stdout.write(chunk));
+    else docker.container.modem.demuxStream(output, stdout, stderr);
     await docker.container.start();
   }
 
