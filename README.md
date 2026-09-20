@@ -456,6 +456,19 @@ process.exit
 runtime.completed
 ```
 
+### Run Manifest and PR from an approved run
+
+Every run has a read-only **Run Manifest** — one document covering the whole chain: human request (with extracted constraints), declared intent and any mid-run amendments, permissions granted (and which secrets were actually injected), independently observed behavior (files changed, writes the sandbox prevented, commands, tests, allowed/blocked network), alignment verdicts, findings by drift class, and the human decision.
+
+```bash
+curl -b cookie.txt http://localhost:3000/api/runs/<runId>/manifest                 # JSON
+curl -b cookie.txt "http://localhost:3000/api/runs/<runId>/manifest?format=markdown"
+```
+
+In the UI: run page → **Run manifest**. It is derived from the stored request/intent/events/findings/review each time, never edited.
+
+Once a human has **approved the review**, the run page offers **Create PR branch** (`POST /api/runs/<runId>/pull-request` with optional `branch`, `push`, `remote`, `title`). Periscope applies exactly the diff it recorded and reviewed — not the live sandbox, not your working tree — in a temporary worktree of the source repository, commits it on a new branch with the manifest as the commit body, and (with `push: true`) pushes and returns a compare URL. Runs that are unreviewed, pending, rejected or failed are refused with `409`. The endpoint is blocked on the public gateway because it writes to a repository on the host.
+
 ## Watch Events
 
 Connect to the Server-Sent Events stream:

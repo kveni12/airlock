@@ -26,6 +26,7 @@ import type {
   RunDetail,
   RunFilesResponse,
   RunRecord,
+  RunPullRequest,
   TimelineEntry
 } from "./contracts";
 
@@ -64,6 +65,17 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function requestText(path: string, signal?: AbortSignal): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store", credentials: "include", signal });
+  } catch {
+    throw new AgentGuardApiError(`Periscope backend is unavailable at ${API_BASE_URL}.`);
+  }
+  if (!response.ok) throw new AgentGuardApiError(`Backend request failed: ${response.status} ${response.statusText}`, response.status);
+  return response.text();
 }
 
 function post<T>(path: string, body: unknown = {}) {
@@ -149,6 +161,18 @@ export function getFiles(runId: string, signal?: AbortSignal) {
 
 export function getRunDetail(runId: string, signal?: AbortSignal) {
   return request<RunDetail>(`/api/runs/${enc(runId)}/detail`, signal);
+}
+
+export function getRunManifestMarkdown(runId: string, signal?: AbortSignal): Promise<string> {
+  return requestText(`/api/runs/${enc(runId)}/manifest?format=markdown`, signal);
+}
+
+export function manifestDownloadUrl(runId: string) {
+  return `${API_BASE_URL}/api/runs/${enc(runId)}/manifest?format=markdown`;
+}
+
+export function createPullRequestFromRun(runId: string, body: { branch?: string; push?: boolean; remote?: string; title?: string } = {}) {
+  return post<RunPullRequest>(`/api/runs/${enc(runId)}/pull-request`, body);
 }
 
 export async function getTimeline(runId: string, signal?: AbortSignal): Promise<TimelineEntry[]> {
