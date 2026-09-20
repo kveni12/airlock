@@ -4,10 +4,12 @@ import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, Fi
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
 import { registerAuth } from "./auth/authRoutes.js";
+import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
 import { RuntimeManager } from "./runtime/runtimeManager.js";
 import { IntentService } from "./intent/intentService.js";
+import { IntentAmendmentService } from "./intent/intentAmendmentService.js";
 import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
@@ -18,6 +20,7 @@ import { ResolutionService, type ResolveFindingRequest } from "./resolution/reso
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
+import { listRepoDirectory } from "./repo/repoTree.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -26,6 +29,7 @@ export interface AppContext {
   runtime: RuntimeManager;
   requests: RequestService;
   intents: IntentService;
+  amendments: IntentAmendmentService;
   intentAlignment: IntentAlignmentService;
   findings: FindingService;
   analysis: BehaviorAnalysisService;
@@ -51,6 +55,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
   const intents = context?.intents ?? new IntentService(store);
+  const amendments = context?.amendments ?? new IntentAmendmentService(store, events, intents);
+  runtime.attachAmendments(amendments);
   const findings = context?.findings ?? new FindingService(store, events);
   const intentAlignment = context?.intentAlignment ?? new IntentAlignmentService(store, intents, findings);
   const analysis = context?.analysis ?? new BehaviorAnalysisService(store, findings);
@@ -86,11 +92,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   }
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
+  const google = resolveGoogleConfig();
   await registerAuth(app, auth, {
     allowedOrigins,
     cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
-    cookieSameSite: resolveCookieSameSite()
+    cookieSameSite: resolveCookieSameSite(),
+    google
   });
+  if (google) {
+    app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
+  }
 
   const setupToken = await auth.issueSetupToken();
   if (setupToken) {
@@ -100,6 +111,23 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   app.get("/health", async () => ({ ok: true }));
 
   app.get("/api/agent-profiles", async () => ({ profiles: await runtime.getAgentProfiles() }));
+
+  app.get("/api/runtime/status", async () => runtime.setup.status());
+
+  app.post("/api/runtime/setup", async (request, reply) => {
+    const body = request.body as { provider?: string; agent?: string } | undefined;
+    if (body?.provider === "docker") return reply.code(202).send(runtime.setup.startSetup({ provider: "docker" }));
+    if (body?.provider === "lima") return reply.code(202).send(runtime.setup.startSetup({ provider: "lima", agent: body.agent }));
+    return reply.code(400).send({ error: "provider must be 'docker' or 'lima'" });
+  });
+
+  app.get("/api/runtime/setup", async () => ({ jobs: runtime.setup.listJobs() }));
+
+  app.get("/api/runtime/setup/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const job = runtime.setup.getJob(id);
+    return job ?? reply.code(404).send({ error: `Setup job ${id} not found` });
+  });
 
   app.post("/api/runs", async (request, reply) => {
     try {
@@ -188,6 +216,16 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     const permissions = await store.getPermissions(id);
     if (!permissions) return reply.code(404).send({ error: "Run not found" });
     return permissions;
+  });
+
+  app.get("/api/repo-tree", async (request, reply) => {
+    const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
+    if (!repoPath) return reply.code(400).send({ error: "path is required" });
+    try {
+      return await listRepoDirectory(repoPath, dir ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get("/api/runs/:id/files", async (request, reply) => {
@@ -384,6 +422,46 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     try {
       const body = decisionBody(request);
       return await intents.approve((request.params as { id: string }).id, body);
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/intent-amendments", async (request) => {
+    const { runId } = request.query as { runId?: string };
+    return { amendments: await amendments.list(runId) };
+  });
+
+  app.get("/api/intent-amendments/:id", async (request, reply) => {
+    const amendment = await amendments.get((request.params as { id: string }).id);
+    if (!amendment) return reply.code(404).send({ error: "Amendment not found" });
+    return amendment;
+  });
+
+  app.get("/api/runs/:id/intent-amendments", async (request) => {
+    return { amendments: await amendments.list((request.params as { id: string }).id) };
+  });
+
+  /** Agent-side request (also reachable from inside the sandbox via http://periscope.internal/amendments). */
+  app.post("/api/runs/:id/intent-amendments", async (request, reply) => {
+    try {
+      return reply.code(201).send(await amendments.request((request.params as { id: string }).id, request.body, "control_channel"));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/approve", async (request, reply) => {
+    try {
+      return await amendments.approve((request.params as { id: string }).id, decisionBody(request));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/intent-amendments/:id/deny", async (request, reply) => {
+    try {
+      return await amendments.deny((request.params as { id: string }).id, decisionBody(request));
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

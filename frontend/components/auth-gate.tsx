@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Image from "next/image";
-import { AgentGuardApiError, bootstrapAdmin, getAuthStatus, getCurrentUser, login, logout } from "@/lib/api";
+import { AgentGuardApiError, bootstrapAdmin, getAuthStatus, getCurrentUser, googleSignInUrl, login, logout } from "@/lib/api";
 import type { PublicUser } from "@/lib/contracts";
 
 interface AuthState {
@@ -22,6 +22,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [offlineMessage, setOfflineMessage] = useState("");
+  const [googleEnabled, setGoogleEnabled] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -37,6 +38,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
     try {
       const status = await getAuthStatus();
+      setGoogleEnabled(Boolean(status.googleEnabled));
       setPhase(status.needsBootstrap ? "setup" : "login");
     } catch (error) {
       setOfflineMessage(error instanceof Error ? error.message : String(error));
@@ -51,8 +53,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await logout().catch(() => undefined);
     setUser(null);
-    setPhase("login");
-  }, []);
+    setPhase("loading");
+    await refresh();
+  }, [refresh]);
 
   if (phase === "loading") return <CenteredCard><p className="text-sm text-[#64717c]">Checking your session…</p></CenteredCard>;
   if (phase === "offline") {
@@ -63,7 +66,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     </CenteredCard>;
   }
   if (phase === "setup") return <CenteredCard><SetupForm onDone={(created) => { setUser(created); setPhase("ready"); }} /></CenteredCard>;
-  if (phase === "login") return <CenteredCard><LoginForm onDone={(signedIn) => { setUser(signedIn); setPhase("ready"); }} /></CenteredCard>;
+  if (phase === "login") return <CenteredCard><LoginForm googleEnabled={googleEnabled} onDone={(signedIn) => { setUser(signedIn); setPhase("ready"); }} /></CenteredCard>;
 
   return <AuthContext.Provider value={{ user, signOut }}>{children}</AuthContext.Provider>;
 }
@@ -84,11 +87,19 @@ const inputCls = "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm";
 const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#64717c]";
 const submitCls = "mt-5 w-full rounded-lg bg-[#182a33] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60";
 
-function LoginForm({ onDone }: { onDone: (user: PublicUser) => void }) {
+function LoginForm({ googleEnabled, onDone }: { googleEnabled: boolean; onDone: (user: PublicUser) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [googleHref, setGoogleHref] = useState("");
+
+  // Runs in the browser: the return path and the Google callback's ?authError= are both in the URL.
+  useEffect(() => {
+    const reported = new URLSearchParams(window.location.search).get("authError");
+    if (reported) setError(reported);
+    setGoogleHref(googleSignInUrl(window.location.pathname));
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -110,6 +121,10 @@ function LoginForm({ onDone }: { onDone: (user: PublicUser) => void }) {
     <label className="mt-3 block text-sm"><span className={labelCls}>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} required /></label>
     {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
     <button type="submit" disabled={busy} className={submitCls}>{busy ? "Signing in…" : "Sign in"}</button>
+    {googleEnabled ? <>
+      <div className="my-4 flex items-center gap-3 text-xs uppercase tracking-wider text-[#64717c]"><span className="h-px flex-1 bg-[#e3e3e0]" />or<span className="h-px flex-1 bg-[#e3e3e0]" /></div>
+      <a href={googleHref} className="flex w-full items-center justify-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Continue with Google</a>
+    </> : null}
   </form>;
 }
 

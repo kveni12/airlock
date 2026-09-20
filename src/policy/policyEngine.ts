@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AgentEvent, EventInput, PermissionSnapshot } from "../types.js";
+import type { AgentEvent, EventInput, FilePermission, PermissionSnapshot } from "../types.js";
 
 export const DEFAULT_SENSITIVE_PATTERNS = [
   ".env",
@@ -42,9 +42,7 @@ export class PolicyEngine {
           violations.push(this.violation(event, "sensitive_file_change", resource, "Agent modified a potentially sensitive file."));
         }
 
-        const allowedFiles = context.permissions.filesystem ?? [];
-        const writable = allowedFiles.filter((permission) => permission.access === "read_write");
-        if (allowedFiles.length && !writable.some((permission) => pathWithinPermission(resource, permission.path))) {
+        if (!writeAllowed(resource, context.permissions.filesystem ?? [])) {
           violations.push(this.violation(event, "permission_scope", resource, "Agent touched a path outside its declared filesystem scope."));
         }
       }
@@ -95,6 +93,23 @@ function isModificationAction(action: string): boolean {
 export function normalizeResource(resource?: string): string | undefined {
   if (!resource) return undefined;
   return resource.replace(/^\/workspace\//, "").replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+/** The most specific matching grant decides; with no grants at all, nothing is declared and writes are not scoped. */
+export function writeAllowed(resource: string, filesystem: FilePermission[]): boolean {
+  if (!filesystem.length) return true;
+  let best: FilePermission | undefined;
+  let bestLength = -1;
+  for (const permission of filesystem) {
+    if (!pathWithinPermission(resource, permission.path)) continue;
+    const normalized = normalizeResource(permission.path) ?? "";
+    const length = ["/workspace", "/workspace/", "."].includes(normalized) ? 0 : normalized.length;
+    if (length > bestLength) {
+      best = permission;
+      bestLength = length;
+    }
+  }
+  return best?.access === "read_write";
 }
 
 export function pathWithinPermission(resource: string, permissionPath: string): boolean {
