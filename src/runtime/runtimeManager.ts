@@ -107,6 +107,7 @@ export class RuntimeManager {
     }
     const agent = resolveAgent(request);
     const runtimeProvider = request.runtime?.provider ?? this.options.defaultProvider ?? defaultProvider();
+    if (request.interactive && runtimeProvider !== "docker") throw new Error("interactive runs require the docker runtime");
     const permissions = request.permissions ?? {};
     const secretEnvironment = resolveSecretEnvironment(permissions);
     const runtimeEnvironment = { ...agent.environment, ...secretEnvironment };
@@ -137,7 +138,8 @@ export class RuntimeManager {
       workspaceAccess: request.purpose === "planner" ? "read_only" : "read_write",
       purpose: request.purpose ?? "builder",
       parentRunId: request.parentRunId,
-      projectId: request.projectId
+      projectId: request.projectId,
+      interactive: request.interactive || undefined
     };
 
     await this.store.createRun(run, permissions);
@@ -586,6 +588,7 @@ function validateCreateRun(request: CreateRunRequest): void {
   if (!request.taskId) throw new Error("taskId is required");
   if (!request.agentId) throw new Error("agentId is required");
   if (!request.repo?.path) throw new Error("repo.path is required");
+  if (request.interactive && request.purpose === "planner") throw new Error("interactive runs cannot be planners");
   if (!request.command?.length && !request.agent?.command?.length && !request.agent) {
     throw new Error("command or agent profile is required");
   }

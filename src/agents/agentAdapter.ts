@@ -98,7 +98,7 @@ export function resolveAgent(request: CreateRunRequest, hostEnv: NodeJS.ProcessE
     command: request.command
   };
 
-  const command = profile.command ?? request.command ?? commandForProfile(profile);
+  const command = profile.command ?? request.command ?? (request.interactive ? interactiveCommandForProfile(profile) : commandForProfile(profile));
   if (!command?.length) {
     throw new Error("Agent command is required. Provide command or agent.command.");
   }
@@ -188,6 +188,16 @@ function commandForProfile(profile: AgentProfile): string[] {
   }
 
   throw new Error(`Agent profile '${profile.kind}' requires an explicit command.`);
+}
+
+/** The agent's own interactive CLI, exactly as a user would start it locally; Periscope only observes. */
+function interactiveCommandForProfile(profile: AgentProfile): string[] {
+  const args = profile.args ?? [];
+  if (profile.kind === "codex") return withCodexApiKeyLogin([profile.binary ?? "codex", ...args]);
+  if (profile.kind === "claude_code") return [profile.binary ?? "claude", ...args];
+  if (profile.kind === "opencode") return [profile.binary ?? "opencode", ...args];
+  if (profile.kind === "cursor") return [profile.binary ?? "agent", ...args];
+  throw new Error(`Agent profile '${profile.kind}' has no interactive CLI; pass an explicit command.`);
 }
 
 function requiredPrompt(profile: AgentProfile): string {
