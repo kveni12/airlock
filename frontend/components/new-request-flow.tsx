@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowDown, Check, Plus, Settings2, ShieldAlert, ShieldCheck, X } from "lucide-react";
-import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
-import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, getProject, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
+import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, Project, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
+import { OPEN_PROJECT_KEY } from "./projects-list";
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, DEFAULT_SCOPE, scopeToPermissions, setFolderAccess, summarizeScope, type AccessScope } from "./access-scope";
 import { FindingCard } from "./finding-card";
+import { RepoPathField } from "./folder-picker";
 import { RuntimeStatusPanel } from "./runtime-status";
 import { ActionButton, AlignmentBadge, Chips, ErrorBanner, KeyValue, Section } from "./ui";
 
@@ -54,6 +56,29 @@ export function NewRequestFlow() {
   const [agentBinary, setAgentBinary] = useState("");
   const [scope, setScope] = useState<AccessScope>(DEFAULT_SCOPE);
   const [accessGaps, setAccessGaps] = useState<AccessGapReport | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const searchParams = useSearchParams();
+  const projectParam = searchParams.get("project");
+
+  useEffect(() => {
+    const id = projectParam ?? window.localStorage.getItem(OPEN_PROJECT_KEY);
+    if (!id) return;
+    const controller = new AbortController();
+    getProject(id, controller.signal).then((p) => {
+      setProject(p);
+      setRepoPath(p.repoPath);
+      setProvider(p.runtime);
+      setScope({ ...p.scope, folders: p.scope.folders.map((f) => ({ ...f })) });
+      if (p.agentKind && PICKABLE_KINDS.includes(p.agentKind)) {
+        setAgentChoice(p.agentKind);
+        setAgentId((cur) => (cur === "demo-planner" ? `${p.agentKind}-planner` : cur));
+        setBuilderAgentId((cur) => (cur === "demo-builder" ? `${p.agentKind}-builder` : cur));
+      }
+    }).catch(() => { if (!controller.signal.aborted) window.localStorage.removeItem(OPEN_PROJECT_KEY); });
+    return () => controller.abort();
+  }, [projectParam]);
+
+  const detachProject = () => { setProject(null); window.localStorage.removeItem(OPEN_PROJECT_KEY); router.replace("/requests/new"); };
   const profiles = useResource<AgentProfile[]>((signal) => getAgentProfiles(signal), 60_000);
   const selectedProfile = profiles.data?.find((p) => p.kind === agentChoice);
   const usingRealAgent = agentChoice !== "script";
@@ -134,7 +159,8 @@ export function NewRequestFlow() {
         taskId,
         agentId,
         requestId: requestResult.request.id,
-        repo: { path: repoPath },
+        repo: { path: repoPath, ...(project?.branch ? { branch: project.branch } : {}) },
+        projectId: project?.id,
         agent: agentConfig(),
         command: usingRealAgent ? undefined : shell(plannerCommand),
         permissions: scopeToPermissions(scope, "planner"),
@@ -155,7 +181,8 @@ export function NewRequestFlow() {
     const { runId } = await createRun({
       taskId,
       agentId: builderAgentId,
-      repo: { path: repoPath },
+      repo: { path: repoPath, ...(project?.branch ? { branch: project.branch } : {}) },
+      projectId: project?.id,
       agent: agentConfig(requestResult?.request.rawPrompt ?? prompt),
       command: usingRealAgent ? undefined : shell(builderCommand),
       runtime: { provider },
@@ -173,15 +200,20 @@ export function NewRequestFlow() {
   const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#64717c]";
   const agentWorkspaceFields = <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
     <p className="text-sm font-semibold">Agent &amp; workspace <span className="text-xs font-normal text-[#64717c]">(shared by planner and builder)</span></p>
+    {project ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#d1b191] bg-[#f6f2ec] px-3 py-2 text-sm">
+      <span>Project <strong>{project.name}</strong> is open — repo, runtime, agent and access scope below were loaded from its saved settings.</span>
+      <Link href={`/projects/${encodeURIComponent(project.id)}`} className="underline">Edit project settings</Link>
+      <button type="button" onClick={detachProject} className="text-[#64717c] underline">Start without a project</button>
+    </div> : <p className="text-xs text-[#64717c]">Tip: <Link href="/projects" className="underline">open a project</Link> to pre-fill all of this from saved settings.</p>}
     <div className="grid gap-3 md:grid-cols-2">
       <label className="block text-sm"><span className={labelCls}>Agent</span>
         <select value={agentChoice} onChange={(e) => chooseAgent(e.target.value)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
-          <option value="script">Shell command (demo scripts / custom)</option>
+          <option value="script">Shell command (scripted demo builder / custom)</option>
           {(profiles.data ?? []).filter((p) => PICKABLE_KINDS.includes(p.kind)).map((p) => <option key={p.kind} value={p.kind}>{p.displayName}</option>)}
         </select>
         {profiles.error && <span className="mt-1 block text-xs text-[#9a3d31]">Could not load agent profiles: {profiles.error}</span>}
       </label>
-      <label className="block text-sm"><span className={labelCls}>Repo path (on the machine running the backend)</span><input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/Users/you/code/my-app" className={inputCls} /></label>
+      <div className="text-sm"><RepoPathField value={repoPath} onChange={setRepoPath} mono={false} /></div>
       <label className="block text-sm"><span className={labelCls}>Runtime provider</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
           <option value="process">process — no isolation, runs on this machine on a temp copy</option>
@@ -290,7 +322,9 @@ export function NewRequestFlow() {
       {!intent ? <p className="text-sm text-[#64717c]">Capture intent first — Periscope will not start a builder without a declared intent to compare against.</p> : <div className="space-y-3">
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder agent id</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          {usingRealAgent ? <p className="text-sm text-[#64717c] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
+          {usingRealAgent ? <p className="text-sm text-[#64717c] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" />
+            {builderCommand.includes("agentguard-intent-demo-builder") && !repoPath.includes("intent-demo-repo") ? <span className="mt-1 block text-xs text-[#9a3d31]">This scripted demo builder only works in <span className="mono">fixtures/intent-demo-repo</span> (it writes <span className="mono">src/auth/session.js</span>); pick a real agent above or change the command.</span> : null}
+          </label>}
         </div>
         <div className="rounded-xl border bg-[#f6f2ec] p-4">
           <p className="text-sm font-semibold">The run will start with exactly this access</p>

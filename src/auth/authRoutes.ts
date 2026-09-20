@@ -23,6 +23,7 @@ const PUBLIC_PATHS = new Set([
   "/api/auth/bootstrap",
   "/api/auth/login",
   "/api/auth/logout",
+  "/api/auth/register",
   "/api/auth/google/start",
   "/api/auth/google/callback"
 ]);
@@ -34,12 +35,25 @@ export interface AuthPluginOptions {
   cookieSameSite: "lax" | "none" | "strict";
   /** Google sign-in is offered only when an OAuth client is configured. */
   google?: GoogleOAuthConfig;
+  /** Anyone may create an operator account (`PERISCOPE_OPEN_SIGNUP=1`); otherwise only admins create users. */
+  openSignup?: boolean;
+}
+
+export function openSignupEnabled(): boolean {
+  return process.env.PERISCOPE_OPEN_SIGNUP === "1" || process.env.PERISCOPE_OPEN_SIGNUP === "true";
+}
+
+/** `PERISCOPE_AUTH_DISABLED=1` turns login off (local/demo use): every caller is anonymous, decisions record no account. */
+export function authDisabled(): boolean {
+  return process.env.PERISCOPE_AUTH_DISABLED === "1" || process.env.PERISCOPE_AUTH_DISABLED === "true";
 }
 
 export async function registerAuth(app: FastifyInstance, auth: AuthService, options: AuthPluginOptions): Promise<void> {
   await app.register(cookie);
+  if (authDisabled()) app.log.warn("PERISCOPE_AUTH_DISABLED is set: login is off and governance actions are not attributed to an account");
 
   app.addHook("onRequest", async (request, reply) => {
+    if (authDisabled()) return;
     const path = request.url.split("?")[0];
     if (PUBLIC_PATHS.has(path)) return;
 
@@ -55,8 +69,30 @@ export async function registerAuth(app: FastifyInstance, auth: AuthService, opti
   app.get("/api/auth/status", async () => ({
     authenticated: false,
     needsBootstrap: await auth.needsBootstrap(),
-    googleEnabled: Boolean(options.google)
+    googleEnabled: Boolean(options.google),
+    openSignup: Boolean(options.openSignup)
   }));
+
+  app.post("/api/auth/register", async (request, reply) => {
+    if (!options.openSignup) return reply.code(404).send({ error: "Self-signup is not enabled on this instance" });
+    if (!originAllowed(request, options.allowedOrigins)) {
+      return reply.code(403).send({ error: "Request origin is not allowed" });
+    }
+    if (await auth.needsBootstrap()) return reply.code(409).send({ error: "Create the first administrator first" });
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const user = await auth.createUser({
+        email: body.email,
+        password: body.password,
+        displayName: body.displayName,
+        role: "operator"
+      });
+      await establishSession(auth, reply, options, body.email, body.password);
+      return reply.code(201).send({ user });
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
 
   const pendingGoogleAuthorizations = new GoogleAuthorizationStore();
 

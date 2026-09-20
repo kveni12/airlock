@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
-import { registerAuth } from "./auth/authRoutes.js";
+import { openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
 import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
@@ -12,6 +12,7 @@ import { IntentService } from "./intent/intentService.js";
 import { IntentAmendmentService } from "./intent/intentAmendmentService.js";
 import { PLANNER_OUTPUT_INSTRUCTION, extractGeneratedIntent } from "./intent/generatedIntentExtractor.js";
 import { IntentAlignmentService } from "./intent/intentAlignmentService.js";
+import { ProjectService } from "./projects/projectService.js";
 import { RequestService, validateRequestDraft } from "./request/requestService.js";
 import { FindingService } from "./findings/findingService.js";
 import { BehaviorAnalysisService } from "./analysis/behaviorAnalyzer.js";
@@ -21,6 +22,7 @@ import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
 import { listRepoDirectory } from "./repo/repoTree.js";
+import { listHostFolders, nativeFolderDialogAvailable, pickHostFolder } from "./repo/hostFolders.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -54,6 +56,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const runtime = context?.runtime ?? new RuntimeManager(store, events);
   const recovered = context?.runtime ? undefined : await runtime.recover();
   const requests = context?.requests ?? new RequestService(store);
+  const projects = new ProjectService(store);
   const intents = context?.intents ?? new IntentService(store);
   const amendments = context?.amendments ?? new IntentAmendmentService(store, events, intents);
   runtime.attachAmendments(amendments);
@@ -97,7 +100,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     allowedOrigins,
     cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1",
     cookieSameSite: resolveCookieSameSite(),
-    google
+    google,
+    openSignup: openSignupEnabled()
   });
   if (google) {
     app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
@@ -218,6 +222,25 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     return permissions;
   });
 
+  app.get("/api/host/folders", async (request, reply) => {
+    const { dir } = request.query as { dir?: string };
+    try {
+      return { ...(await listHostFolders(dir)), nativeDialog: nativeFolderDialogAvailable() };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/host/pick-folder", async (request, reply) => {
+    const body = (request.body ?? {}) as { startDir?: unknown };
+    try {
+      const folder = await pickHostFolder(typeof body.startDir === "string" ? body.startDir : undefined);
+      return { path: folder };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get("/api/repo-tree", async (request, reply) => {
     const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
     if (!repoPath) return reply.code(400).send({ error: "path is required" });
@@ -256,6 +279,40 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     } catch (error: unknown) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
+  });
+
+  app.get("/api/projects", async () => projects.list());
+
+  app.post("/api/projects", async (request, reply) => {
+    try {
+      return reply.code(201).send(await projects.create(request.body));
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/projects/:id", async (request, reply) => {
+    const project = await projects.get((request.params as { id: string }).id);
+    return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.put("/api/projects/:id", async (request, reply) => {
+    try {
+      const project = await projects.update((request.params as { id: string }).id, request.body);
+      return project ?? reply.code(404).send({ error: "Project not found" });
+    } catch (error: unknown) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/:id/open", async (request, reply) => {
+    const project = await projects.open((request.params as { id: string }).id);
+    return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.delete("/api/projects/:id", async (request, reply) => {
+    const removed = await projects.delete((request.params as { id: string }).id);
+    return removed ? reply.code(204).send() : reply.code(404).send({ error: "Project not found" });
   });
 
   app.get("/api/request-rules", async () => requests.getRules());
@@ -690,6 +747,7 @@ function plannerRunRequest(body: Record<string, unknown>, taskId: string, agentI
     cleanupWorkspace: true,
     runtime: body.runtime as CreateRunRequest["runtime"],
     requestId,
+    projectId: typeof body.projectId === "string" ? body.projectId : undefined,
     purpose: "planner"
   };
 }

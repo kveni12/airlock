@@ -16,13 +16,31 @@ This repository implements the backend workflow for:
 ## Quickstart (backend + UI)
 
 ```bash
-npm install
+npm run setup     # checks Node 22+ and Docker, installs deps, builds the sandbox image
 npm run dev:all
 ```
+
+(`npm install && npm run dev:all` also works if you would rather skip the checks.) Periscope runs on **your** machine: the **Open folder…** button on Projects and New request browses this computer's disk (with the native macOS folder dialog when available), so any local git checkout can be governed — the agent only ever sees the sandboxed copy of the folder you pick. The hosted/tunnel demo cannot reach your files; run it locally for that.
 
 Then open `http://localhost:3001`. The first time you do, the UI asks you to create an administrator account and paste the one-time setup token the backend printed to its log at startup (`Periscope has no operator account yet…`). Every later visit asks you to sign in; requests, intent decisions, dismissals and review approvals are recorded against that account rather than a caller-supplied name.
 
 `dev:all` installs the frontend dependencies if needed, seeds `data/agentguard-store.json` with the deterministic intent demo (only when the store does not exist yet; set `AGENTGUARD_SKIP_SEED=1` to skip), and starts the backend on `:3000` and the frontend on `:3001`. No Lima or Docker is needed for the seeded demo — it uses the opt-in `process` runtime.
+
+### Share it publicly (one Cloudflare quick tunnel)
+
+```bash
+npm run dev:public                       # browse-anywhere demo
+GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: periscope)
+PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
+```
+
+`dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host folder browsing (`/api/host/*`), shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
+
+### Projects
+
+**Projects** saves, per repo, the repo path/branch, sandbox runtime, default agent and the full access scope (folders read-only vs can-change, internet hosts, secret names, MCP servers, tools). Open a project and **New request** pre-fills from it; each run records its `projectId`. Settings live in the JSON store (`/api/projects`), never inside the repo.
+
+`npm run demo:projects` seeds three sample projects over the bundled `fixtures/*` repos (idempotent; `AGENTGUARD_RUNTIME_PROVIDER` picks the runtime, default `docker`).
 
 ### Run a real agent on your own repository
 
@@ -61,6 +79,7 @@ Passwords are at least 12 characters and stored as salted scrypt hashes. Session
 - `PERISCOPE_ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API with credentials (default `http://localhost:3001,http://127.0.0.1:3001`). State-changing requests from any other origin are rejected.
 - `PERISCOPE_COOKIE_SECURE=1`: mark the session cookie `Secure` when serving Periscope over HTTPS.
 - `PERISCOPE_COOKIE_SAMESITE`: `lax` (default), `strict`, or `none`. Use `none` when the dashboard is served from a different site than the API (separate tunnels or hosts), otherwise the browser accepts the cookie at login and never sends it back. `none` implies `Secure`, so both sides must be HTTPS.
+- `PERISCOPE_OPEN_SIGNUP=1`: show "Create an account" on the sign-in page; anyone reaching the instance can create an `operator` account (`POST /api/auth/register`). Off by default — only admins create users.
 
 Sharing a local instance over two tunnels therefore needs all three, e.g. `PERISCOPE_ALLOWED_ORIGINS=https://dashboard.example PERISCOPE_COOKIE_SAMESITE=none npm run dev`, with the frontend built against `NEXT_PUBLIC_AGENTGUARD_API_URL=https://api.example`.
 
