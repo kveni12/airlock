@@ -1,4 +1,4 @@
-import { hostAllowed, normalizeResource, writeAllowed } from "../policy/policyEngine.js";
+import { effectiveFileAccess, hostAllowed, normalizeResource, writeAllowed } from "../policy/policyEngine.js";
 import type { AgentIntentDraft, PermissionSnapshot } from "../types.js";
 
 export type AccessGapKind = "filesystem_write" | "network" | "secret" | "mcp_server" | "tool";
@@ -35,7 +35,7 @@ export function analyzeAccessGaps(intent: AgentIntentDraft, permissions: Permiss
       gaps.push({
         kind: "filesystem_write",
         requested: expected,
-        reason: `The plan expects to change ${expected}, but the agent only has ${writable.length ? "write access to " + writable.map((p) => p.path).join(", ") : "read access"}.`,
+        reason: `The plan expects to change ${expected}, but its effective access is ${effectiveFileAccess(target, filesystem) === "none" ? "no access" : "read only"}.${writable.length ? " Writable paths: " + writable.map((p) => p.path).join(", ") + "." : ""}`,
         enforcement: "flagged"
       });
     }

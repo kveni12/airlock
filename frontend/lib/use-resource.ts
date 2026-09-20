@@ -33,7 +33,7 @@ export function useResource<T>(loader: (signal: AbortSignal) => Promise<T>, refr
       controller.abort();
       if (timer) window.clearInterval(timer);
     };
-  }, [refresh, refreshMs, loader]);
+  }, [refresh, refreshMs]);
 
   return { data, loading, error, refresh: () => refresh() };
 }

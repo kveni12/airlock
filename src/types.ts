@@ -46,7 +46,7 @@ export interface AgentEvent {
 
 export interface FilePermission {
   path: string;
-  access: "read" | "read_write";
+  access: "none" | "read" | "read_write";
 }
 
 export interface PermissionSnapshot {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowDown, Check, Plus, Settings2, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { ArrowDown, Check, Plus, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, getProject, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
 import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, Project, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
 import { OPEN_PROJECT_KEY } from "./projects-list";
@@ -39,17 +39,17 @@ const PICKABLE_KINDS = ["claude_code", "codex", "opencode", "cursor", "devin"];
 
 export function NewRequestFlow() {
   const router = useRouter();
-  const [taskId, setTaskId] = useState(`task-${Date.now().toString(36)}`);
+  const [taskId, setTaskId] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [requestResult, setRequestResult] = useState<{ request: HumanRequest; analysis: RequestAnalysis } | null>(null);
   const [preview, setPreview] = useState<RequestAnalysis | null>(null);
   const [objectives, setObjectives] = useState<string[]>([]);
   const [constraints, setConstraints] = useState<string[]>([]);
+  const [requestResult, setRequestResult] = useState<{ request: HumanRequest; analysis: RequestAnalysis } | null>(null);
 
-  const [intentMode, setIntentMode] = useState<"planner" | "manual">("manual");
+  const [intentMode, setIntentMode] = useState<"planner" | "manual">("planner");
   const [agentId, setAgentId] = useState("demo-planner");
   const [repoPath, setRepoPath] = useState("fixtures/intent-demo-repo");
-  const [provider, setProvider] = useState<RuntimeProviderKind>("process");
+  const [provider, setProvider] = useState<RuntimeProviderKind>("docker");
   const [builderAgentId, setBuilderAgentId] = useState("demo-builder");
   const [builderCommand, setBuilderCommand] = useState("agentguard-intent-demo-builder");
   const [agentChoice, setAgentChoice] = useState<AgentChoice>("script");
@@ -64,15 +64,15 @@ export function NewRequestFlow() {
     const id = projectParam ?? window.localStorage.getItem(OPEN_PROJECT_KEY);
     if (!id) return;
     const controller = new AbortController();
-    getProject(id, controller.signal).then((p) => {
-      setProject(p);
-      setRepoPath(p.repoPath);
-      setProvider(p.runtime);
-      setScope({ ...p.scope, folders: p.scope.folders.map((f) => ({ ...f })) });
-      if (p.agentKind && PICKABLE_KINDS.includes(p.agentKind)) {
-        setAgentChoice(p.agentKind);
-        setAgentId((cur) => (cur === "demo-planner" ? `${p.agentKind}-planner` : cur));
-        setBuilderAgentId((cur) => (cur === "demo-builder" ? `${p.agentKind}-builder` : cur));
+    getProject(id, controller.signal).then((loadedProject) => {
+      setProject(loadedProject);
+      setRepoPath(loadedProject.repoPath);
+      setProvider(loadedProject.runtime);
+      setScope({ ...loadedProject.scope, folders: loadedProject.scope.folders.map((folder) => ({ ...folder })) });
+      if (loadedProject.agentKind && PICKABLE_KINDS.includes(loadedProject.agentKind)) {
+        setAgentChoice(loadedProject.agentKind);
+        setAgentId((current) => current === "demo-planner" ? `${loadedProject.agentKind}-planner` : current);
+        setBuilderAgentId((current) => current === "demo-builder" ? `${loadedProject.agentKind}-builder` : current);
       }
     }).catch(() => { if (!controller.signal.aborted) window.localStorage.removeItem(OPEN_PROJECT_KEY); });
     return () => controller.abort();
@@ -130,24 +130,31 @@ export function NewRequestFlow() {
     setError(null);
     const analysis = await previewRequest(prompt);
     setPreview(analysis);
-    setObjectives(analysis.objectives.map((o) => o.text));
-    setConstraints(analysis.explicitConstraints.map((c) => c.text));
+    setObjectives(analysis.objectives.map((item) => item.text));
+    setConstraints(analysis.explicitConstraints.map((item) => item.text));
   };
 
   const edited = Boolean(preview) && (
-    JSON.stringify(objectives) !== JSON.stringify(preview?.objectives.map((o) => o.text)) ||
-    JSON.stringify(constraints) !== JSON.stringify(preview?.explicitConstraints.map((c) => c.text))
+    JSON.stringify(objectives) !== JSON.stringify(preview?.objectives.map((item) => item.text)) ||
+    JSON.stringify(constraints) !== JSON.stringify(preview?.explicitConstraints.map((item) => item.text))
   );
 
   const submitRequest = async () => {
     setError(null);
-    const clean = (items: string[]) => items.map((s) => s.trim()).filter(Boolean);
+    const clean = (items: string[]) => items.map((item) => item.trim()).filter(Boolean);
     const result = await createRequest(edited
-      ? { taskId, rawPrompt: prompt, analysisMode: "manual", requestedObjectives: clean(objectives), explicitConstraints: clean(constraints) }
+      ? { taskId, rawPrompt: prompt, requestedObjectives: clean(objectives), explicitConstraints: clean(constraints), analysisMode: "manual" }
       : { taskId, rawPrompt: prompt });
     setRequestResult(result);
     setIntent(null);
     setAlignment(null);
+  };
+
+  const editRequest = () => {
+    setRequestResult(null);
+    setIntent(null);
+    setAlignment(null);
+    setAccessGaps(null);
   };
 
   const submitIntent = async () => {
@@ -199,14 +206,14 @@ export function NewRequestFlow() {
   const inputCls = "mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm";
   const labelCls = "text-xs font-semibold uppercase tracking-wider text-[#64717c]";
   const agentWorkspaceFields = <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
-    <p className="text-sm font-semibold">Agent &amp; workspace <span className="text-xs font-normal text-[#64717c]">(shared by planner and builder)</span></p>
+    <p className="text-sm font-semibold">Coding agent &amp; project</p>
     {project ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#d1b191] bg-[#f6f2ec] px-3 py-2 text-sm">
-      <span>Project <strong>{project.name}</strong> is open — repo, runtime, agent and access scope below were loaded from its saved settings.</span>
+      <span>Project <strong>{project.name}</strong> is open. Its repository, runtime, agent, and access settings are loaded below.</span>
       <Link href={`/projects/${encodeURIComponent(project.id)}`} className="underline">Edit project settings</Link>
       <button type="button" onClick={detachProject} className="text-[#64717c] underline">Start without a project</button>
-    </div> : <p className="text-xs text-[#64717c]">Tip: <Link href="/projects" className="underline">open a project</Link> to pre-fill all of this from saved settings.</p>}
+    </div> : <p className="text-xs text-[#64717c]">Tip: <Link href="/projects" className="underline">open a project</Link> to load its saved settings.</p>}
     <div className="grid gap-3 md:grid-cols-2">
-      <label className="block text-sm"><span className={labelCls}>Agent</span>
+      <label className="block text-sm"><span className={labelCls}>Coding agent</span>
         <select value={agentChoice} onChange={(e) => chooseAgent(e.target.value)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
           <option value="script">Shell command (scripted demo builder / custom)</option>
           {(profiles.data ?? []).filter((p) => PICKABLE_KINDS.includes(p.kind)).map((p) => <option key={p.kind} value={p.kind}>{p.displayName}</option>)}
@@ -214,7 +221,7 @@ export function NewRequestFlow() {
         {profiles.error && <span className="mt-1 block text-xs text-[#9a3d31]">Could not load agent profiles: {profiles.error}</span>}
       </label>
       <div className="text-sm"><RepoPathField value={repoPath} onChange={setRepoPath} mono={false} /></div>
-      <label className="block text-sm"><span className={labelCls}>Runtime provider</span>
+      <label className="block text-sm"><span className={labelCls}>Isolation</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value as RuntimeProviderKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
           <option value="process">process — no isolation, runs on this machine on a temp copy</option>
           <option value="docker">docker — disposable container (image built automatically)</option>
@@ -226,59 +233,63 @@ export function NewRequestFlow() {
     {agentChoice === "devin" && <p className="text-xs text-[#64717c]">Devin works in its own cloud VM, so Periscope cannot observe it directly. The bridge starts a Devin session via the API (needs <span className="mono">DEVIN_API_KEY</span>); the planner returns structured intent, the builder pushes its work to branch <span className="mono">agentguard/&lt;run id&gt;</span> of the repo&apos;s <span className="mono">origin</span> (Devin needs push access), which is then applied to the workspace and diffed. Devin&apos;s messages are agent-reported evidence.</p>}
     <RuntimeStatusPanel provider={provider} agentKind={usingRealAgent ? agentChoice : undefined} />
     {usingRealAgent && selectedProfile && <p className="text-xs text-[#64717c]">{selectedProfile.description}</p>}
-    {provider === "process" && <p className="text-xs text-[#815017]">process runtime has no sandbox: the agent executes directly on the backend host against a temporary copy of the repo. Your original checkout is not mounted, but network, secrets and the rest of the machine are reachable.</p>}
+    {provider === "process" && <p className="text-xs text-[#815017]">Process mode has no sandbox. The agent works in a temporary repository copy, but the rest of the machine, network, and keys remain reachable.</p>}
   </div>;
 
   return <div className="mx-auto max-w-4xl space-y-3">
-    <div className="mb-7"><p className="eyebrow">Pre-execution</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">New request</h1><p className="mt-2 max-w-2xl text-sm text-[#64717c]">Record the human request, capture the agent&apos;s declared intent before it can write anything, review the request → intent comparison, then start the execution sandbox.</p></div>
+    <div className="mb-7"><p className="eyebrow">Start a task</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">New request</h1><p className="mt-2 max-w-2xl text-sm text-[#64717c]">Describe the task, review the coding plan and access, then start the agent.</p></div>
     {error && <ErrorBanner message={error} />}
 
-    <Section eyebrow="Step 1" title="Human request" action={requestResult ? <span className="status status-good"><Check className="mr-1 size-3.5" />recorded</span> : <Link href="/requests/rules" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64717c] hover:text-[#182a33]"><Settings2 className="size-3.5" />Edit extraction rules</Link>}>
+    <Section eyebrow="Step 1" title="Describe the task" action={requestResult && <div className="flex items-center gap-2"><span className="status status-good"><Check className="mr-1 size-3.5" />recorded</span><button type="button" onClick={editRequest} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#f0f2f3]">Edit request</button></div>}>
       <div className="space-y-3">
-        <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Task id</span><input value={taskId} disabled={Boolean(requestResult)} onChange={(e) => setTaskId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
-        <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Prompt (stored verbatim, immutable)</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => { setPrompt(e.target.value); setPreview(null); }} rows={4} placeholder="e.g. Fix the login bug and add a regression test. Do not modify the database." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm placeholder:italic placeholder:text-[#9aa5ad] disabled:bg-[#f0f2f3]" /></label>
-        {!requestResult && !preview && <div className="flex flex-wrap items-center gap-3"><ActionButton disabled={!prompt.trim() || !taskId.trim()} onClick={async () => { try { await analyzePrompt(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Analyze prompt</ActionButton><button type="button" onClick={() => { setPrompt(DEMO_PROMPT); setPreview(null); }} className="text-xs font-semibold text-[#64717c] underline-offset-2 hover:text-[#182a33] hover:underline">Use the demo prompt</button></div>}
+        <label className="block text-sm"><span className={labelCls}>Task name</span><input value={taskId} disabled={Boolean(requestResult)} onChange={(e) => setTaskId(e.target.value)} placeholder="Fix the login session bug" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
+        <label className="block text-sm"><span className={labelCls}>Prompt</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => { setPrompt(e.target.value); setPreview(null); }} rows={4} placeholder="e.g. Fix the login bug and add a regression test. Do not modify the database." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
+        {!requestResult && !preview && <div className="flex flex-wrap gap-2">
+          <ActionButton disabled={!prompt.trim() || !taskId.trim()} onClick={async () => { try { await analyzePrompt(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Analyze prompt</ActionButton>
+          <ActionButton variant="secondary" onClick={() => { setTaskId("Fix the login session bug"); setPrompt(DEMO_PROMPT); setPreview(null); }}>Use demo request</ActionButton>
+        </div>}
         {!requestResult && preview && <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
-          <p className="text-xs text-[#64717c]">Extracted by regex rules (revision {preview.rulesRevision ?? 0}). Edit the lists below before recording — the prompt itself stays verbatim. Edited items are stored as human-provided, not as extracted.</p>
+          <div>
+            <p className="text-sm font-semibold">Review what will be recorded</p>
+            <p className="mt-1 text-xs text-[#64717c]">Edit, add, or remove anything the extraction got wrong. Changing the prompt returns you to the Analyze prompt step.</p>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <EditableList label="Objectives" items={objectives} onChange={setObjectives} placeholder="What must be done" />
-            <EditableList label="Explicit constraints" items={constraints} onChange={setConstraints} placeholder="What must not happen" />
+            <EditableList label="Objectives" items={objectives} onChange={setObjectives} placeholder="What should the agent accomplish?" />
+            <EditableList label="Explicit constraints" items={constraints} onChange={setConstraints} placeholder="What must the agent avoid or preserve?" />
           </div>
           <dl className="grid gap-3 border-t pt-3 md:grid-cols-2">
-            <KeyValue label="Forbidden resources (from constraints)"><Chips items={preview.explicitlyForbiddenResources.map((r) => r.resource)} /></KeyValue>
-            <KeyValue label="Ambiguities"><Chips items={preview.ambiguities} mono={false} /></KeyValue>
-            <div className="md:col-span-2"><KeyValue label="Inferred expectations (not editable, stay inferred)"><Chips items={preview.inferredExpectations.map((o) => o.text)} mono={false} /></KeyValue></div>
+            <KeyValue label="Detected restrictions"><Chips items={preview.explicitlyForbiddenResources.map((item) => item.resource)} /></KeyValue>
+            <KeyValue label="Needs clarification"><Chips items={preview.ambiguities} mono={false} /></KeyValue>
+            {preview.inferredExpectations.length > 0 && <div className="md:col-span-2"><KeyValue label="System suggestions"><Chips items={preview.inferredExpectations.map((item) => item.text)} mono={false} /></KeyValue></div>}
           </dl>
-          <div className="flex flex-wrap items-center gap-2">
-            <ActionButton disabled={objectives.every((o) => !o.trim())} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request{edited ? " (edited)" : ""}</ActionButton>
-            <ActionButton variant="secondary" onClick={analyzePrompt}>Re-extract</ActionButton>
-            <ActionButton variant="secondary" onClick={() => setPreview(null)}>Back to prompt</ActionButton>
-          </div>
+          <ActionButton disabled={objectives.every((item) => !item.trim())} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request{edited ? " (edited)" : ""}</ActionButton>
         </div>}
         {requestResult && <dl className="grid gap-3 rounded-xl border bg-[#f6f2ec] p-4 md:grid-cols-2">
           <KeyValue label="Objectives"><ProvenanceChips items={requestResult.analysis.objectives} /></KeyValue>
           <KeyValue label="Explicit constraints"><ProvenanceChips items={requestResult.analysis.explicitConstraints} /></KeyValue>
-          <KeyValue label="Forbidden resources"><Chips items={requestResult.analysis.explicitlyForbiddenResources.map((r) => r.resource)} /></KeyValue>
-          <KeyValue label="Inferred expectations"><Chips items={requestResult.analysis.inferredExpectations.map((o) => o.text)} mono={false} /></KeyValue>
-          <p className="mono text-xs text-[#64717c] md:col-span-2">{requestResult.request.id} · analyzer: {requestResult.analysis.analyzer} · rules rev {requestResult.analysis.rulesRevision ?? 0} · {requestResult.request.analysisMode === "manual" ? "lists edited by human" : "lists extracted by rules"}</p>
+          <div className="md:col-span-2"><KeyValue label="Detected restrictions"><div><Chips items={requestResult.analysis.explicitlyForbiddenResources.map((r) => r.resource)} /><p className="mt-1 text-xs text-[#64717c]">Used to check the plan and observed behavior. Access is configured separately.</p></div></KeyValue></div>
+          {requestResult.analysis.ambiguities.length > 0 && <div className="md:col-span-2"><KeyValue label="Needs clarification"><Chips items={requestResult.analysis.ambiguities} mono={false} /></KeyValue></div>}
+          {requestResult.analysis.inferredExpectations.length > 0 && <details className="md:col-span-2 text-sm"><summary className="cursor-pointer font-semibold text-[#64717c]">System suggestions ({requestResult.analysis.inferredExpectations.length})</summary><div className="mt-2"><Chips items={requestResult.analysis.inferredExpectations.map((o) => o.text)} mono={false} /><p className="mt-1 text-xs text-[#64717c]">Suggestions are informational and do not restrict the agent.</p></div></details>}
         </dl>}
       </div>
     </Section>
 
     <div className="flex justify-center text-[#98a4ad]"><ArrowDown className="size-5" /></div>
 
-    <Section eyebrow="Step 2" title="Agent intent (before execution)" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
+    <Section eyebrow="Step 2" title="Review plan and access" action={intent && <AlignmentBadge status={alignment?.alignment?.status ?? intent.alignment?.status} large />}>
       {!requestResult ? <p className="text-sm text-[#64717c]">Record the request first.</p> : !intent ? <div className="space-y-3">
-        <div className="flex gap-2">{(["manual", "planner"] as const).map((m) => <button key={m} onClick={() => setIntentMode(m)} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${intentMode === m ? "border-[#182a33] bg-[#182a33] text-white" : "bg-white text-[#64717c]"}`}>{m === "manual" ? "Paste structured intent" : "Run planner in read-only sandbox"}</button>)}</div>
         {agentWorkspaceFields}
         <AccessScopeEditor scope={scope} onChange={setScope} provider={provider} plannerOnly={intentMode === "planner"} repoPath={repoPath} />
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Planner agent id</span><input value={agentId} onChange={(e) => setAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          {intentMode === "planner" && !usingRealAgent && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Planner command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>}
-        </div>
-        {intentMode === "manual" && <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Structured intent JSON</span><textarea value={intentJson} onChange={(e) => setIntentJson(e.target.value)} rows={14} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-xs" /></label>}
-        {intentMode === "planner" && <p className="text-xs text-[#64717c]">The planner runs in a read-only workspace copy. {usingRealAgent ? <>Periscope prepends instructions so {selectedProfile?.displayName ?? agentChoice} answers with the structured intent as JSON; the human request is passed verbatim.</> : <>The command must print an <span className="mono">AGENTGUARD_EVENT</span> intent line.</>} Any write attempt fails the planning run.</p>}
-        <ActionButton onClick={async () => { try { await submitIntent(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>{intentMode === "planner" ? "Run planner & capture intent" : "Submit intent & analyze"}</ActionButton>
+        {intentMode === "planner" && <p className="text-sm text-[#64717c]">Generating a plan lets the selected agent inspect a read-only copy of the project before any coding begins.</p>}
+        <details className="rounded-xl border bg-white p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">Advanced plan options</summary>
+          <div className="mt-3 space-y-3">
+            <label className="block"><span className={labelCls}>Plan source</span><select value={intentMode} onChange={(e) => setIntentMode(e.target.value as "planner" | "manual")} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"><option value="planner">Generate automatically</option><option value="manual">Import plan JSON</option></select></label>
+            {intentMode === "planner" && !usingRealAgent && <label className="block"><span className={labelCls}>Planning command</span><input value={plannerCommand} onChange={(e) => setPlannerCommand(e.target.value)} className={inputCls} /></label>}
+            {intentMode === "manual" && <label className="block"><span className={labelCls}>Plan JSON</span><textarea value={intentJson} onChange={(e) => setIntentJson(e.target.value)} rows={14} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-xs" /></label>}
+          </div>
+        </details>
+        <ActionButton onClick={async () => { try { await submitIntent(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>{intentMode === "planner" ? "Generate plan" : "Import plan"}</ActionButton>
       </div> : <div className="space-y-4">
         <dl className="space-y-3">
           <KeyValue label="Goal">{intent.goal}</KeyValue>
@@ -293,7 +304,7 @@ export function NewRequestFlow() {
           {!accessGaps && <p className="mt-2 text-sm text-[#64717c]">Checking…</p>}
           {accessGaps && accessGaps.gaps.length === 0 && <p className="mt-2 text-sm text-[#64717c]">Everything the agent says it needs is already allowed. Nothing extra is granted.</p>}
           {accessGaps && accessGaps.gaps.length > 0 && <>
-            <p className="mt-2 text-xs text-[#64717c]">These come from the agent&apos;s own plan (agent-reported). Grant only what you agree with — anything you leave denied is {""}<em>blocked</em> (network, secrets) or <em>flagged</em> in the workbench if the agent tries anyway.</p>
+            <p className="mt-2 text-xs text-[#64717c]">These come from the agent&apos;s own plan. Grant only what you agree with. Denied network access and keys are blocked; other attempts are recorded for review.</p>
             <ul className="mt-3 space-y-2">{accessGaps.gaps.map((gap) => <li key={`${gap.kind}:${gap.requested}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
               <span><span className="mono font-semibold">{gap.requested}</span> <span className="text-[#64717c]">— {gap.reason}</span> <span className={`status ${gap.enforcement === "blocked" ? "status-good" : gap.enforcement === "flagged" ? "status-warn" : "status-muted"}`}>{gap.enforcement === "blocked" ? "blocked if denied" : gap.enforcement === "flagged" ? "flagged if attempted" : "agent-reported only"}</span></span>
               <ActionButton variant="secondary" onClick={() => grant(gap)}>Grant</ActionButton>
@@ -301,39 +312,42 @@ export function NewRequestFlow() {
           </>}
         </div>
         <div className="rounded-xl border bg-[#f6f2ec] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Request → Intent comparison</p><AlignmentBadge status={alignment?.alignment?.status} /></div>
-          {alignment && alignment.findings.length === 0 && <p className="mt-2 text-sm text-[#64717c]">No pre-execution findings. The declared intent does not contradict any explicit constraint or miss a requested objective.</p>}
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Request → Plan comparison</p><AlignmentBadge status={alignment?.alignment?.status} /></div>
+          {alignment && alignment.findings.length === 0 && <p className="mt-2 text-sm text-[#64717c]">No pre-execution findings. The plan does not contradict any explicit constraint or miss a requested objective.</p>}
           <div className="mt-3 grid gap-3">{alignment?.findings.map((f) => <FindingCard key={f.id} finding={f} onChanged={() => refreshAlignment(intent.id)} />)}</div>
           {blocked && <p className="mt-3 text-sm text-[#9a3d31]">Execution blocked: {blocked}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           {alignment?.approval ? <span className={`status ${alignment.approval.status === "approved" ? "status-good" : "status-bad"}`}>{alignment.approval.status}{alignment.approval.actor && ` by ${alignment.approval.actor}`}</span> : <>
-            <ActionButton onClick={async () => { await approveIntent(intent.id, { actor: "human", reason: "Approved from new-request flow" }); await refreshAlignment(intent.id); }}>Approve intent</ActionButton>
-            <ActionButton variant="danger" onClick={async () => { await rejectIntent(intent.id, { actor: "human", reason: "Rejected from new-request flow" }); await refreshAlignment(intent.id); }}>Reject intent</ActionButton>
+            <ActionButton onClick={async () => { await approveIntent(intent.id, { actor: "human", reason: "Approved from new-request flow" }); await refreshAlignment(intent.id); }}>Approve plan</ActionButton>
+            <ActionButton variant="danger" onClick={async () => { await rejectIntent(intent.id, { actor: "human", reason: "Rejected from new-request flow" }); await refreshAlignment(intent.id); }}>Reject plan</ActionButton>
           </>}
-          <ActionButton variant="secondary" onClick={() => { setIntent(null); setAlignment(null); }}>Retry with a different intent</ActionButton>
+          <ActionButton variant="secondary" onClick={() => { setIntent(null); setAlignment(null); }}>Generate a different plan</ActionButton>
         </div>
       </div>}
     </Section>
 
     <div className="flex justify-center text-[#98a4ad]"><ArrowDown className="size-5" /></div>
 
-    <Section eyebrow="Step 3" title="Execution sandbox">
-      {!intent ? <p className="text-sm text-[#64717c]">Capture intent first — Periscope will not start a builder without a declared intent to compare against.</p> : <div className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder agent id</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
-          {usingRealAgent ? <p className="text-sm text-[#64717c] md:self-end">{selectedProfile?.displayName ?? agentChoice} runs in <span className="mono">{repoPath}</span> ({provider}) with the recorded prompt.</p> : <label className="block text-sm"><span className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">Builder command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className="mono mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" />
-            {builderCommand.includes("agentguard-intent-demo-builder") && !repoPath.includes("intent-demo-repo") ? <span className="mt-1 block text-xs text-[#9a3d31]">This scripted demo builder only works in <span className="mono">fixtures/intent-demo-repo</span> (it writes <span className="mono">src/auth/session.js</span>); pick a real agent above or change the command.</span> : null}
-          </label>}
-        </div>
+    <Section eyebrow="Step 3" title="Start coding">
+      {!intent ? <p className="text-sm text-[#64717c]">Generate a plan first so Periscope can compare the requested work with what the agent intends to do.</p> : <div className="space-y-3">
+        <p className="text-sm text-[#64717c]">{usingRealAgent ? selectedProfile?.displayName ?? agentChoice : "The configured command"} will work in <span className="mono">{repoPath}</span> using {provider} isolation.</p>
+        <details className="rounded-xl border bg-white p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">Advanced coding options</summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <label className="block"><span className={labelCls}>Agent ID</span><input value={builderAgentId} onChange={(e) => setBuilderAgentId(e.target.value)} className={inputCls} /></label>
+            {!usingRealAgent && <label className="block"><span className={labelCls}>Coding command</span><input value={builderCommand} onChange={(e) => setBuilderCommand(e.target.value)} className={inputCls} /></label>}
+          </div>
+        </details>
+        {!usingRealAgent && builderCommand.includes("agentguard-intent-demo-builder") && !repoPath.includes("intent-demo-repo") && <p className="text-xs text-[#9a3d31]">The scripted demo builder only works in <span className="mono">fixtures/intent-demo-repo</span>. Choose a coding agent or change the command for another project.</p>}
         <div className="rounded-xl border bg-[#f6f2ec] p-4">
-          <p className="text-sm font-semibold">The run will start with exactly this access</p>
+          <p className="text-sm font-semibold">The coding run will start with this access</p>
           <ul className="mt-2 space-y-0.5 text-sm">{summarizeScope(scope, provider).map((line) => <li key={line}>{line}</li>)}</ul>
-          {accessGaps && accessGaps.gaps.length > 0 && <p className="mt-2 text-xs text-[#815017]">{accessGaps.gaps.length} item{accessGaps.gaps.length === 1 ? "" : "s"} from the plan {accessGaps.gaps.length === 1 ? "is" : "are"} still denied — that is fine if intentional; attempts will show up as out-of-scope in the workbench.</p>}
-          <details className="mt-2 text-sm"><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-[#64717c]">Adjust scope</summary><div className="mt-2"><AccessScopeEditor scope={scope} onChange={setScope} provider={provider} repoPath={repoPath} /></div></details>
+          {accessGaps && accessGaps.gaps.length > 0 && <p className="mt-2 text-xs text-[#815017]">{accessGaps.gaps.length} item{accessGaps.gaps.length === 1 ? "" : "s"} from the plan {accessGaps.gaps.length === 1 ? "is" : "are"} still denied. Attempts will appear in the workbench.</p>}
+          <details className="mt-2 text-sm"><summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-[#64717c]">Adjust access</summary><div className="mt-2"><AccessScopeEditor scope={scope} onChange={setScope} provider={provider} repoPath={repoPath} /></div></details>
         </div>
         {blocked && <p className="text-sm text-[#9a3d31]">{blocked}</p>}
-        <ActionButton disabled={Boolean(blocked)} onClick={async () => { try { await startRun(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Start execution run</ActionButton>
+        <ActionButton disabled={Boolean(blocked)} onClick={async () => { try { await startRun(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Start coding</ActionButton>
       </div>}
     </Section>
   </div>;
@@ -343,9 +357,9 @@ function EditableList({ label, items, onChange, placeholder }: { label: string; 
   return <div>
     <p className="text-xs font-semibold uppercase tracking-wider text-[#64717c]">{label}</p>
     <ul className="mt-1.5 space-y-1.5">
-      {items.map((item, i) => <li key={i} className="flex items-center gap-1.5">
-        <input value={item} placeholder={placeholder} autoFocus={item === "" && i === items.length - 1} onChange={(e) => onChange(items.map((v, j) => (j === i ? e.target.value : v)))} className="w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-[#14212a]" />
-        <button type="button" aria-label="Remove" onClick={() => onChange(items.filter((_, j) => j !== i))} className="rounded-md p-1.5 text-[#64717c] hover:bg-white hover:text-[#8c2f26]"><X className="size-3.5" /></button>
+      {items.map((item, index) => <li key={index} className="flex items-center gap-1.5">
+        <input value={item} placeholder={placeholder} autoFocus={item === "" && index === items.length - 1} onChange={(event) => onChange(items.map((value, itemIndex) => itemIndex === index ? event.target.value : value))} className="w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-[#14212a]" />
+        <button type="button" aria-label={"Remove " + label.toLowerCase() + " item"} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md p-1.5 text-[#64717c] hover:bg-white hover:text-[#8c2f26]"><X className="size-3.5" /></button>
       </li>)}
     </ul>
     <button type="button" onClick={() => onChange([...items, ""])} className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-[#64717c] hover:text-[#182a33]"><Plus className="size-3.5" />Add</button>

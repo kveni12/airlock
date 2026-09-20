@@ -113,6 +113,8 @@ export class DockerProvider implements SandboxProvider {
       HostConfig: {
         AutoRemove: false,
         Binds: binds,
+        Tmpfs: Object.fromEntries(mounts.maskedDirectories.map((relative) => [path.posix.join("/workspace", relative), "ro,nosuid,nodev,noexec,size=64k"])),
+        MaskedPaths: mounts.maskedFiles.map((relative) => path.posix.join("/workspace", relative)),
         Memory: this.options.memoryBytes ?? 512 * 1024 * 1024,
         CpuShares: this.options.cpuShares ?? 512,
         PidsLimit: this.options.pidsLimit ?? 256,
@@ -176,11 +178,18 @@ function asDockerHandle(handle: SandboxHandle): DockerHandle {
   return handle as DockerHandle;
 }
 
-/** Root bind read-only with each read_write grant layered on top as a writable bind of the same path. */
+/** Bind only visible paths. Nested binds let a child override its parent's access. */
 export function dockerBinds(workspacePath: string, mounts: WorkspaceMounts): string[] {
-  const binds = [`${workspacePath}:/workspace${mounts.root === "ro" ? ":ro" : ""}`];
-  if (mounts.root === "ro") {
-    for (const relative of mounts.writable) binds.push(`${path.join(workspacePath, relative)}:${path.posix.join("/workspace", relative)}`);
+  const binds: string[] = [];
+  if (mounts.root !== "none") binds.push(`${workspacePath}:/workspace${mounts.root === "ro" ? ":ro" : ""}`);
+  const hostPath = (relative: string) => /^[A-Za-z]:[\\/]/.test(workspacePath)
+    ? path.win32.join(workspacePath, relative)
+    : path.posix.join(workspacePath.replace(/\\/g, "/"), relative);
+  for (const relative of mounts.readonly) {
+    binds.push(`${hostPath(relative)}:${path.posix.join("/workspace", relative)}:ro`);
+  }
+  for (const relative of mounts.writable) {
+    binds.push(`${hostPath(relative)}:${path.posix.join("/workspace", relative)}`);
   }
   return binds;
 }

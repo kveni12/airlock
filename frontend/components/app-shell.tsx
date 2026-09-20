@@ -18,8 +18,11 @@ const navigation = [
   { href: "/activity", label: "Activity", icon: Activity }
 ];
 
+const AUTH_DISABLED = process.env.NEXT_PUBLIC_PERISCOPE_AUTH_DISABLED === "1";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
-  return <AuthGate><AuthenticatedShell>{children}</AuthenticatedShell></AuthGate>;
+  const shell = <AuthenticatedShell>{children}</AuthenticatedShell>;
+  return AUTH_DISABLED ? shell : <AuthGate>{shell}</AuthGate>;
 }
 
 function AuthenticatedShell({ children }: { children: React.ReactNode }) {

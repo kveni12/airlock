@@ -10,7 +10,7 @@ import { useAgentGuardSnapshot } from "../lib/use-snapshot";
 import { ConnectionError, LoadingState } from "./backend-state";
 import { FilterChips } from "./ui";
 
-const categoryLabel = (item: string) => (item === "mcp" ? "MCP" : item);
+const categoryLabel = (item: string) => (item === "mcp" ? "MCP" : item === "secret" ? "key" : item);
 
 const filters: Array<"all" | EventCategory> = ["all", "agent", "filesystem", "process", "network", "secret", "mcp", "git", "policy", "runtime"];
 

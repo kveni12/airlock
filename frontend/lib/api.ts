@@ -343,6 +343,30 @@ export function rejectReview(id: string, body: { actor?: string; reason?: string
 
 // ---- composed ----
 
+export async function loadAgentCapabilities(signal?: AbortSignal) {
+  const runs = await listRuns(signal);
+  const latestRuns = [...new Map(
+    runs.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((run) => [run.agentId, run])
+  ).values()];
+  const details = await Promise.all(latestRuns.map(async (run) => {
+    const [permissions, events] = await Promise.all([
+      getPermissions(run.id, signal),
+      getEvents(run.id, signal)
+    ]);
+    return { runId: run.id, permissions, events };
+  }));
+  return {
+    runs: latestRuns,
+    permissionsByRun: Object.fromEntries(details.map((item) => [item.runId, item.permissions])),
+    eventsByRun: Object.fromEntries(details.map((item) => [item.runId, item.events]))
+  };
+}
+
+export async function loadAgentCapability(agentId: string, signal?: AbortSignal) {
+  const runs = await listRuns(signal);
+  const run = runs.filter((item) => item.agentId === agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  return { run, permissions: run ? await getPermissions(run.id, signal) : null };
+}
 export async function loadDashboardSnapshot(signal?: AbortSignal): Promise<DashboardSnapshot> {
   const runs = await listRuns(signal);
   const details = await Promise.all(runs.map(async (run) => {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -40,15 +40,59 @@ describe("workspace mount plan", () => {
         { path: "/workspace/infra", access: "read" }
       ]
     });
-    expect(mounts).toEqual({ root: "ro", writable: ["src/auth", "tests"] });
+    expect(mounts).toEqual({ root: "ro", readonly: [], writable: ["src/auth", "tests"], maskedFiles: [], maskedDirectories: [] });
     await expect(stat(path.join(directory, "src/auth"))).resolves.toBeTruthy();
   });
 
   it("is fully read-only for planners and fully writable when the root is granted or no scope exists", async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), "mounts-"));
-    expect(await planWorkspaceMounts({ ...run, workspaceAccess: "read_only" }, directory, { filesystem: [{ path: "/workspace", access: "read_write" }] })).toEqual({ root: "ro", writable: [] });
-    expect(await planWorkspaceMounts(run, directory, { filesystem: [{ path: "/workspace", access: "read_write" }] })).toEqual({ root: "rw", writable: [] });
-    expect(await planWorkspaceMounts(run, directory, {})).toEqual({ root: "rw", writable: [] });
+    const empty = { readonly: [], writable: [], maskedFiles: [], maskedDirectories: [] };
+    expect(await planWorkspaceMounts({ ...run, workspaceAccess: "read_only" }, directory, { filesystem: [{ path: "/workspace", access: "read_write" }] })).toEqual({ root: "ro", ...empty });
+    expect(await planWorkspaceMounts(run, directory, { filesystem: [{ path: "/workspace", access: "read_write" }] })).toEqual({ root: "rw", ...empty });
+    expect(await planWorkspaceMounts(run, directory, {})).toEqual({ root: "rw", ...empty });
+  });
+
+  it("can hide the whole repo while exposing only a writable child", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "mounts-"));
+    const permissions = {
+      filesystem: [
+        { path: "/workspace", access: "none" as const },
+        { path: "/workspace/src/auth", access: "read_write" as const }
+      ]
+    };
+    expect(await planWorkspaceMounts(run, directory, permissions)).toEqual({
+      root: "none",
+      readonly: [],
+      writable: ["src/auth"],
+      maskedFiles: [],
+      maskedDirectories: []
+    });
+    expect(await planWorkspaceMounts({ ...run, workspaceAccess: "read_only" }, directory, permissions)).toEqual({
+      root: "none",
+      readonly: ["src/auth"],
+      writable: [],
+      maskedFiles: [],
+      maskedDirectories: []
+    });
+  });
+
+  it("masks a denied folder while allowing a more specific child override", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "mounts-"));
+    await mkdir(path.join(directory, "private/public"), { recursive: true });
+    const mounts = await planWorkspaceMounts(run, directory, {
+      filesystem: [
+        { path: "/workspace", access: "read" },
+        { path: "/workspace/private", access: "none" },
+        { path: "/workspace/private/public", access: "read_write" }
+      ]
+    });
+    expect(mounts).toEqual({
+      root: "ro",
+      readonly: [],
+      writable: ["private/public"],
+      maskedFiles: [],
+      maskedDirectories: ["private"]
+    });
   });
 
   it("refuses grants that escape the workspace", async () => {
@@ -71,19 +115,29 @@ describe("process runtime environment", () => {
 });
 
 describe("provider mounts", () => {
-  it("docker binds the root read-only and layers writable grants on top", () => {
-    expect(dockerBinds("/tmp/ws", { root: "ro", writable: ["src/auth", "tests"] })).toEqual([
+  it("docker binds only visible paths and preserves nested access overrides", () => {
+    const emptyMasks = { maskedFiles: [], maskedDirectories: [] };
+    expect(dockerBinds("/tmp/ws", { root: "ro", readonly: [], writable: ["src/auth", "tests"], ...emptyMasks })).toEqual([
       "/tmp/ws:/workspace:ro",
       "/tmp/ws/src/auth:/workspace/src/auth",
       "/tmp/ws/tests:/workspace/tests"
     ]);
-    expect(dockerBinds("/tmp/ws", { root: "rw", writable: [] })).toEqual(["/tmp/ws:/workspace"]);
+    expect(dockerBinds("/tmp/ws", { root: "rw", readonly: ["infra"], writable: [], ...emptyMasks })).toEqual([
+      "/tmp/ws:/workspace",
+      "/tmp/ws/infra:/workspace/infra:ro"
+    ]);
+    expect(dockerBinds("/tmp/ws", { root: "none", readonly: ["docs"], writable: ["src/auth"], ...emptyMasks })).toEqual([
+      "/tmp/ws/docs:/workspace/docs:ro",
+      "/tmp/ws/src/auth:/workspace/src/auth"
+    ]);
   });
 
   it("lima can only express whole-workspace ro/rw, never a partial overlay", () => {
-    expect(limaMountSpec("/tmp/ws", { root: "ro", writable: [] })).toBe("/tmp/ws");
-    expect(limaMountSpec("/tmp/ws", { root: "rw", writable: [] })).toBe("/tmp/ws:w");
-    expect(limaMountSpec("/tmp/ws", { root: "ro", writable: ["src"] })).toBe("/tmp/ws:w");
+    const empty = { readonly: [], writable: [], maskedFiles: [], maskedDirectories: [] };
+    expect(limaMountSpec("/tmp/ws", { root: "ro", ...empty })).toBe("/tmp/ws");
+    expect(limaMountSpec("/tmp/ws", { root: "rw", ...empty })).toBe("/tmp/ws:w");
+    expect(limaMountSpec("/tmp/ws", { root: "ro", ...empty, writable: ["src"] })).toBe("/tmp/ws:w");
+    expect(limaMountSpec("/tmp/ws", { root: "none", ...empty, readonly: ["src"] })).toBe("/tmp/ws");
   });
 });
 

@@ -30,7 +30,7 @@ export interface MCPServer {
 }
 
 export interface PermissionSnapshot {
-  filesystem?: Array<{ path: string; access: "read" | "read_write" }>;
+  filesystem?: Array<{ path: string; access: "none" | "read" | "read_write" }>;
   network?: string[];
   secrets?: string[];
   mcpServers?: Array<string | MCPServer>;
@@ -103,7 +103,7 @@ export interface RunPullRequest {
 }
 
 export interface ProjectScope {
-  folders: Array<{ path: string; access: "read" | "read_write" }>;
+  folders: Array<{ path: string; access: "none" | "read" | "read_write" }>;
   hosts: string[];
   secrets: string[];
   mcpServers: string[];
