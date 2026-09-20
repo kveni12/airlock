@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowDown, Check, ShieldAlert, ShieldCheck } from "lucide-react";
-import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
+import { approveIntent, checkIntentAccess, createIntent, createRequest, createRun, generateIntent, getAgentProfiles, getIntentAlignment, previewRequest, rejectIntent, type IntentAlignmentResponse } from "@/lib/api";
 import type { AccessGap, AccessGapReport, AgentIntent, AgentIntentDraft, AgentProfile, AgentProfileConfig, HumanRequest, RequestAnalysis, RuntimeProviderKind } from "@/lib/contracts";
 import { useResource } from "@/lib/use-resource";
 import { AccessScopeEditor, DEFAULT_SCOPE, scopeToPermissions, setFolderAccess, summarizeScope, type AccessScope } from "./access-scope";
@@ -39,6 +39,10 @@ export function NewRequestFlow() {
   const router = useRouter();
   const [taskId, setTaskId] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [objectiveText, setObjectiveText] = useState("");
+  const [constraintText, setConstraintText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
   const [requestResult, setRequestResult] = useState<{ request: HumanRequest; analysis: RequestAnalysis } | null>(null);
 
   const [intentMode, setIntentMode] = useState<"planner" | "manual">("planner");
@@ -51,7 +55,8 @@ export function NewRequestFlow() {
   const [agentBinary, setAgentBinary] = useState("");
   const [scope, setScope] = useState<AccessScope>(DEFAULT_SCOPE);
   const [accessGaps, setAccessGaps] = useState<AccessGapReport | null>(null);
-  const profiles = useResource<AgentProfile[]>((signal) => getAgentProfiles(signal), 60_000);
+  const loadAgentProfiles = useCallback((signal: AbortSignal) => getAgentProfiles(signal), []);
+  const profiles = useResource<AgentProfile[]>(loadAgentProfiles, 60_000);
   const selectedProfile = profiles.data?.find((p) => p.kind === agentChoice);
   const usingRealAgent = agentChoice !== "script";
   const timeoutMs = usingRealAgent ? REAL_AGENT_TIMEOUT_MS : SCRIPT_TIMEOUT_MS;
@@ -74,6 +79,36 @@ export function NewRequestFlow() {
   const [alignment, setAlignment] = useState<IntentAlignmentResponse | null>(null);
 
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!prompt.trim()) {
+      setObjectiveText("");
+      setConstraintText("");
+      setExtractionError(null);
+      setExtracting(false);
+      return;
+    }
+
+    let cancelled = false;
+    setExtracting(true);
+    setExtractionError(null);
+    const timer = window.setTimeout(() => {
+      previewRequest(prompt).then((analysis) => {
+        if (cancelled) return;
+        setObjectiveText(analysis.objectives.map((item) => item.text).join("\n"));
+        setConstraintText(analysis.explicitConstraints.map((item) => item.text).join("\n"));
+      }).catch((caught) => {
+        if (!cancelled) setExtractionError(caught instanceof Error ? caught.message : String(caught));
+      }).finally(() => {
+        if (!cancelled) setExtracting(false);
+      });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [prompt]);
 
   const refreshAlignment = async (id: string) => setAlignment(await getIntentAlignment(id));
 
@@ -100,7 +135,13 @@ export function NewRequestFlow() {
 
   const submitRequest = async () => {
     setError(null);
-    const result = await createRequest({ taskId, rawPrompt: prompt });
+    const result = await createRequest({
+      taskId,
+      rawPrompt: prompt,
+      requestedObjectives: listFromText(objectiveText),
+      explicitConstraints: listFromText(constraintText),
+      analysisMode: "manual"
+    });
     setRequestResult(result);
     setIntent(null);
     setAlignment(null);
@@ -193,7 +234,18 @@ export function NewRequestFlow() {
       <div className="space-y-3">
         <label className="block text-sm"><span className={labelCls}>Task name</span><input value={taskId} disabled={Boolean(requestResult)} onChange={(e) => setTaskId(e.target.value)} placeholder="Fix the login session bug" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
         <label className="block text-sm"><span className={labelCls}>Prompt</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="Describe what the agent should do and any restrictions it must follow." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
-        {!requestResult && <div className="flex flex-wrap gap-2"><ActionButton disabled={!prompt.trim() || !taskId.trim()} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request</ActionButton><ActionButton variant="secondary" onClick={() => { setTaskId("Fix the login session bug"); setPrompt(DEMO_PROMPT); }}>Use demo request</ActionButton></div>}
+        {!requestResult && prompt.trim() && <div className="rounded-xl border bg-[#f6f2ec] p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div><p className="text-sm font-semibold">Review what will be recorded</p><p className="mt-1 text-xs text-[#64717c]">One item per line. Edit, add, or remove anything the automatic extraction got wrong.</p></div>
+            <span className={"status " + (extractionError ? "status-bad" : extracting ? "status-info" : "status-good")}>{extractionError ? "extraction failed" : extracting ? "extracting..." : "ready to edit"}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block text-sm"><span className={labelCls}>Objectives</span><textarea aria-label="Objectives" value={objectiveText} onChange={(e) => setObjectiveText(e.target.value)} rows={5} placeholder="What should the agent accomplish?" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
+            <label className="block text-sm"><span className={labelCls}>Explicit constraints</span><textarea aria-label="Explicit constraints" value={constraintText} onChange={(e) => setConstraintText(e.target.value)} rows={5} placeholder="What must the agent avoid or preserve?" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" /></label>
+          </div>
+          {extractionError && <p className="mt-2 text-xs text-[#9a3d31]">Automatic extraction was unavailable. You can still enter the objectives and constraints manually.</p>}
+        </div>}
+        {!requestResult && <div className="flex flex-wrap gap-2"><ActionButton disabled={!prompt.trim() || !taskId.trim() || extracting} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request</ActionButton><ActionButton variant="secondary" onClick={() => { setTaskId("Fix the login session bug"); setPrompt(DEMO_PROMPT); }}>Use demo request</ActionButton></div>}
         {requestResult && <dl className="grid gap-3 rounded-xl border bg-[#f6f2ec] p-4 md:grid-cols-2">
           <KeyValue label="Objectives"><ProvenanceChips items={requestResult.analysis.objectives} /></KeyValue>
           <KeyValue label="Explicit constraints"><ProvenanceChips items={requestResult.analysis.explicitConstraints} /></KeyValue>
@@ -280,6 +332,10 @@ export function NewRequestFlow() {
       </div>}
     </Section>
   </div>;
+}
+
+function listFromText(value: string): string[] {
+  return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 
 function ProvenanceChips({ items }: { items: RequestAnalysis["objectives"] }) {
