@@ -29,6 +29,7 @@ Then open `http://localhost:3001`. The first time you do, the UI asks you to cre
 ```bash
 npm run dev:public                       # browse-anywhere demo
 GATEWAY_PASS=secret npm run dev:public   # whole site behind basic auth (user: periscope)
+PERISCOPE_AUTH_DISABLED=1 npm run dev:all  # no login (local/demo only; actions are not attributed to an account)
 ```
 
 `dev:public` starts backend, frontend and `scripts/public-gateway.mjs` — a single-origin proxy on `:8787` that serves the UI and forwards `/api/*` to the backend — then publishes only that port through `cloudflared tunnel` and prints the `https://*.trycloudflare.com` URL (temporary; it dies with the process). Without a password the gateway blocks anything that touches the host: runtime setup, host repo browsing, shared rule edits, finding auto-resolve, and any run that is not `docker` on a bundled `fixtures/*` repo. Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on `PATH` (pass `--no-tunnel` to skip it).
