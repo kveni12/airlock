@@ -8,5 +8,6 @@ coverage/
 .env.*
 !.env.example
 .next/
+next-env.d.ts
 *.tsbuildinfo
 __pycache__/
