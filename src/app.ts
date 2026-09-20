@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AgentIntent, AgentIntentDraft, CreateRunRequest, FindingSource, FindingStatus, EventSeverity, PermissionSnapshot, RunRecord } from "./types.js";
 import { JsonStore } from "./store/jsonStore.js";
 import { AuthService } from "./auth/authService.js";
-import { registerAuth } from "./auth/authRoutes.js";
+import { openSignupEnabled, registerAuth } from "./auth/authRoutes.js";
 import { resolveGoogleConfig } from "./auth/googleOAuth.js";
 import { PolicyEngine } from "./policy/policyEngine.js";
 import { EventCollector } from "./events/eventCollector.js";
@@ -20,8 +20,11 @@ import { ReviewService } from "./review/reviewService.js";
 import { ResolutionService, type ResolveFindingRequest } from "./resolution/resolutionService.js";
 import { SummaryService } from "./dashboard/summaryService.js";
 import { RunInsightService } from "./dashboard/runInsightService.js";
+import { RunManifestService, manifestToMarkdown } from "./manifest/runManifestService.js";
+import { PullRequestError, PullRequestService } from "./manifest/pullRequestService.js";
 import { analyzeAccessGaps } from "./analysis/accessGapAnalyzer.js";
 import { listRepoDirectory } from "./repo/repoTree.js";
+import { listHostFolders, nativeFolderDialogAvailable, pickHostFolder } from "./repo/hostFolders.js";
 
 export interface AppContext {
   store: JsonStore;
@@ -38,6 +41,8 @@ export interface AppContext {
   resolutions: ResolutionService;
   summaries: SummaryService;
   insights: RunInsightService;
+  manifests: RunManifestService;
+  pullRequests: PullRequestService;
 }
 
 export async function createApp(context?: Partial<AppContext>): Promise<FastifyInstance> {
@@ -66,6 +71,8 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const resolutions = context?.resolutions ?? new ResolutionService(store, events, runtime, findings, analysis, reviews);
   const summaries = context?.summaries ?? new SummaryService(store);
   const insights = context?.insights ?? new RunInsightService(store);
+  const manifests = context?.manifests ?? new RunManifestService(store, insights);
+  const pullRequests = context?.pullRequests ?? new PullRequestService(store, manifests, events);
 
   events.subscribeAll((event) => {
     if (event.category !== "runtime" || event.action !== "completed") return;
@@ -95,7 +102,7 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
   const allowedOrigins = resolveAllowedOrigins();
   await app.register(cors, { origin: allowedOrigins, credentials: true });
   const google = resolveGoogleConfig();
-  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google });
+  await registerAuth(app, auth, { allowedOrigins, cookieSecure: process.env.PERISCOPE_COOKIE_SECURE === "1", google, openSignup: openSignupEnabled() });
   if (google) {
     app.log.info({ redirectUri: google.redirectUri }, "Google sign-in enabled");
   }
@@ -215,6 +222,25 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
     return permissions;
   });
 
+  app.get("/api/host/folders", async (request, reply) => {
+    const { dir } = request.query as { dir?: string };
+    try {
+      return { ...(await listHostFolders(dir)), nativeDialog: nativeFolderDialogAvailable() };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/host/pick-folder", async (request, reply) => {
+    const body = (request.body ?? {}) as { startDir?: unknown };
+    try {
+      const folder = await pickHostFolder(typeof body.startDir === "string" ? body.startDir : undefined);
+      return { path: folder };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get("/api/repo-tree", async (request, reply) => {
     const { path: repoPath, dir } = request.query as { path?: string; dir?: string };
     if (!repoPath) return reply.code(400).send({ error: "path is required" });
@@ -235,6 +261,29 @@ export async function createApp(context?: Partial<AppContext>): Promise<FastifyI
       files: run.gitSummary?.files ?? [],
       diff: run.gitSummary?.diff ?? null
     };
+  });
+
+  app.get("/api/runs/:id/manifest", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { format } = request.query as { format?: string };
+    if (!(await store.getRun(id))) return reply.code(404).send({ error: "Run not found" });
+    const manifest = await manifests.build(id);
+    if (format === "markdown" || format === "md") {
+      return reply.type("text/markdown; charset=utf-8").send(manifestToMarkdown(manifest));
+    }
+    return manifest;
+  });
+
+  app.post("/api/runs/:id/pull-request", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { branch?: string; push?: boolean; remote?: string; title?: string };
+    try {
+      const pullRequest = await pullRequests.createFromApprovedRun(id, { ...body, actor: actorFor(request) });
+      return reply.code(201).send(pullRequest);
+    } catch (error: unknown) {
+      if (error instanceof PullRequestError) return reply.code(error.statusCode).send({ error: error.message });
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
   });
 
   app.post("/api/requests", async (request, reply) => {

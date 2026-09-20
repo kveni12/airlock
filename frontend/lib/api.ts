@@ -16,6 +16,7 @@ import type {
   ProjectInput,
   PublicUser,
   RepoTreeListing,
+  HostFolderListing,
   RuntimeSetupJob,
   RuntimeStatus,
   RequestAnalysis,
@@ -25,6 +26,7 @@ import type {
   RunDetail,
   RunFilesResponse,
   RunRecord,
+  RunPullRequest,
   TimelineEntry
 } from "./contracts";
 
@@ -65,6 +67,17 @@ async function request<T>(path: string, signal?: AbortSignal, init?: { method?: 
   return response.json() as Promise<T>;
 }
 
+async function requestText(path: string, signal?: AbortSignal): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store", credentials: "include", signal });
+  } catch {
+    throw new AgentGuardApiError(`Periscope backend is unavailable at ${API_BASE_URL}.`);
+  }
+  if (!response.ok) throw new AgentGuardApiError(`Backend request failed: ${response.status} ${response.statusText}`, response.status);
+  return response.text();
+}
+
 function post<T>(path: string, body: unknown = {}) {
   return request<T>(path, undefined, { method: "POST", body });
 }
@@ -92,6 +105,10 @@ export async function login(email: string, password: string): Promise<PublicUser
 
 export async function bootstrapAdmin(body: { email: string; password: string; displayName?: string; setupToken: string }): Promise<PublicUser> {
   return (await post<{ user: PublicUser }>("/api/auth/bootstrap", body)).user;
+}
+
+export async function registerAccount(body: { email: string; password: string; displayName?: string }): Promise<PublicUser> {
+  return (await post<{ user: PublicUser }>("/api/auth/register", body)).user;
 }
 
 export function logout() {
@@ -144,6 +161,18 @@ export function getFiles(runId: string, signal?: AbortSignal) {
 
 export function getRunDetail(runId: string, signal?: AbortSignal) {
   return request<RunDetail>(`/api/runs/${enc(runId)}/detail`, signal);
+}
+
+export function getRunManifestMarkdown(runId: string, signal?: AbortSignal): Promise<string> {
+  return requestText(`/api/runs/${enc(runId)}/manifest?format=markdown`, signal);
+}
+
+export function manifestDownloadUrl(runId: string) {
+  return `${API_BASE_URL}/api/runs/${enc(runId)}/manifest?format=markdown`;
+}
+
+export function createPullRequestFromRun(runId: string, body: { branch?: string; push?: boolean; remote?: string; title?: string } = {}) {
+  return post<RunPullRequest>(`/api/runs/${enc(runId)}/pull-request`, body);
 }
 
 export async function getTimeline(runId: string, signal?: AbortSignal): Promise<TimelineEntry[]> {
@@ -224,6 +253,14 @@ export function getIntent(id: string, signal?: AbortSignal) {
 
 export function getIntentAlignment(id: string, signal?: AbortSignal) {
   return request<IntentAlignmentResponse>(`/api/intents/${enc(id)}/alignment`, signal);
+}
+
+export function getHostFolders(dir?: string, signal?: AbortSignal) {
+  return request<HostFolderListing>(`/api/host/folders${dir ? `?dir=${enc(dir)}` : ""}`, signal);
+}
+
+export async function pickHostFolder(startDir?: string): Promise<string | null> {
+  return (await post<{ path: string | null }>("/api/host/pick-folder", { startDir })).path;
 }
 
 export function getRepoTree(repoPath: string, dir = "", signal?: AbortSignal) {

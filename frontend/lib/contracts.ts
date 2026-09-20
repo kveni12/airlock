@@ -79,6 +79,19 @@ export interface RunRecord {
   purpose?: "builder" | "planner" | "resolver";
   parentRunId?: string;
   projectId?: string;
+  pullRequest?: RunPullRequest;
+}
+
+export interface RunPullRequest {
+  branch: string;
+  commit: string;
+  baseHead?: string | null;
+  pushed: boolean;
+  remote?: string;
+  url?: string;
+  compareUrl?: string;
+  createdAt: string;
+  createdBy?: string;
 }
 
 export interface ProjectScope {
@@ -156,6 +169,21 @@ export interface RepoTreeListing {
   entries: RepoTreeEntry[];
 }
 
+export interface HostFolderEntry {
+  name: string;
+  path: string;
+  isGitRepo: boolean;
+}
+
+export interface HostFolderListing {
+  dir: string;
+  parent: string | null;
+  home: string;
+  isGitRepo: boolean;
+  entries: HostFolderEntry[];
+  nativeDialog: boolean;
+}
+
 export interface RuntimeStatus {
   docker: { available: boolean; image: string; imagePresent: boolean; detail?: string };
   lima: { available: boolean; baseVm: string; baseVmPresent: boolean; agentVms: Record<string, { vm: string; present: boolean }>; detail?: string };
@@ -201,6 +229,7 @@ export interface AuthStatus {
   authenticated: boolean;
   needsBootstrap: boolean;
   googleEnabled?: boolean;
+  openSignup?: boolean;
 }
 
 export type LexiconCategory = "database" | "infrastructure" | "dependencies" | "network" | "secrets" | "tests" | "configuration";

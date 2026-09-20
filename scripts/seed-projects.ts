@@ -58,12 +58,13 @@ const SAMPLE_PROJECTS: ProjectInput[] = [
   {
     name: "Docs-only sandbox",
     repoPath: fixture("phase2-demo-repo"),
+    agentKind: "claude_code",
     runtime,
-    notes: "Least-privilege template: README editable, everything else read-only, no network, no secrets.",
+    notes: "Least-privilege template: README editable, everything else read-only, no network beyond the model API, no other secrets.",
     scope: {
       folders: [{ path: "README.md", access: "read_write" }],
-      hosts: [],
-      secrets: [],
+      hosts: ["api.anthropic.com"],
+      secrets: ["ANTHROPIC_API_KEY"],
       mcpServers: [],
       tools: []
     }
