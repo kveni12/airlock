@@ -26,6 +26,7 @@ import type {
   RunDetail,
   RunFilesResponse,
   RunRecord,
+  IntentAmendment,
   RunPullRequest,
   TimelineEntry
 } from "./contracts";
@@ -367,4 +368,18 @@ export function subscribeToRun(runId: string, onEvent: (event: AgentEvent) => vo
   for (const eventName of eventNames) source.addEventListener(eventName, (message) => onEvent(JSON.parse((message as MessageEvent).data) as AgentEvent));
   source.onerror = () => onError?.();
   return () => source.close();
+}
+
+// ---- intent amendments ----
+
+export async function listRunAmendments(runId: string, signal?: AbortSignal): Promise<IntentAmendment[]> {
+  return (await request<{ amendments: IntentAmendment[] }>(`/api/runs/${enc(runId)}/intent-amendments`, signal)).amendments;
+}
+
+export function approveAmendment(id: string, body: { actor?: string; reason?: string } = {}) {
+  return post<IntentAmendment>(`/api/intent-amendments/${enc(id)}/approve`, body);
+}
+
+export function denyAmendment(id: string, body: { actor?: string; reason?: string } = {}) {
+  return post<IntentAmendment>(`/api/intent-amendments/${enc(id)}/deny`, body);
 }
