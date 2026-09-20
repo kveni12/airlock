@@ -42,8 +42,6 @@ export function NewRequestFlow() {
   const [preview, setPreview] = useState<RequestAnalysis | null>(null);
   const [objectives, setObjectives] = useState<string[]>([]);
   const [constraints, setConstraints] = useState<string[]>([]);
-  const [extracting, setExtracting] = useState(false);
-  const [extractionError, setExtractionError] = useState<string | null>(null);
   const [requestResult, setRequestResult] = useState<{ request: HumanRequest; analysis: RequestAnalysis } | null>(null);
 
   const [intentMode, setIntentMode] = useState<"planner" | "manual">("planner");
@@ -81,38 +79,6 @@ export function NewRequestFlow() {
 
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setPreview(null);
-    setObjectives([]);
-    setConstraints([]);
-    if (!prompt.trim()) {
-      setExtractionError(null);
-      setExtracting(false);
-      return;
-    }
-
-    let cancelled = false;
-    setExtracting(true);
-    setExtractionError(null);
-    const timer = window.setTimeout(() => {
-      previewRequest(prompt).then((analysis) => {
-        if (cancelled) return;
-        setPreview(analysis);
-        setObjectives(analysis.objectives.map((item) => item.text));
-        setConstraints(analysis.explicitConstraints.map((item) => item.text));
-      }).catch((caught) => {
-        if (!cancelled) setExtractionError(caught instanceof Error ? caught.message : String(caught));
-      }).finally(() => {
-        if (!cancelled) setExtracting(false);
-      });
-    }, 350);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [prompt]);
-
   const refreshAlignment = async (id: string) => setAlignment(await getIntentAlignment(id));
 
   useEffect(() => {
@@ -136,9 +102,18 @@ export function NewRequestFlow() {
     }
   });
 
-  const edited = !preview ||
-    JSON.stringify(objectives) !== JSON.stringify(preview.objectives.map((item) => item.text)) ||
-    JSON.stringify(constraints) !== JSON.stringify(preview.explicitConstraints.map((item) => item.text));
+  const analyzePrompt = async () => {
+    setError(null);
+    const analysis = await previewRequest(prompt);
+    setPreview(analysis);
+    setObjectives(analysis.objectives.map((item) => item.text));
+    setConstraints(analysis.explicitConstraints.map((item) => item.text));
+  };
+
+  const edited = Boolean(preview) && (
+    JSON.stringify(objectives) !== JSON.stringify(preview?.objectives.map((item) => item.text)) ||
+    JSON.stringify(constraints) !== JSON.stringify(preview?.explicitConstraints.map((item) => item.text))
+  );
 
   const submitRequest = async () => {
     setError(null);
@@ -237,19 +212,27 @@ export function NewRequestFlow() {
     <Section eyebrow="Step 1" title="Describe the task" action={requestResult && <div className="flex items-center gap-2"><span className="status status-good"><Check className="mr-1 size-3.5" />recorded</span><button type="button" onClick={editRequest} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#f0f2f3]">Edit request</button></div>}>
       <div className="space-y-3">
         <label className="block text-sm"><span className={labelCls}>Task name</span><input value={taskId} disabled={Boolean(requestResult)} onChange={(e) => setTaskId(e.target.value)} placeholder="Fix the login session bug" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
-        <label className="block text-sm"><span className={labelCls}>Prompt</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="Describe what the agent should do and any restrictions it must follow." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
-        {!requestResult && prompt.trim() && <div className="rounded-xl border bg-[#f6f2ec] p-4">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-            <div><p className="text-sm font-semibold">Review what will be recorded</p><p className="mt-1 text-xs text-[#64717c]">Edit, add, or remove anything the automatic extraction got wrong.</p></div>
-            <span className={"status " + (extractionError ? "status-bad" : extracting ? "status-info" : "status-good")}>{extractionError ? "extraction failed" : extracting ? "extracting..." : edited ? "edited" : "extracted"}</span>
+        <label className="block text-sm"><span className={labelCls}>Prompt</span><textarea value={prompt} disabled={Boolean(requestResult)} onChange={(e) => { setPrompt(e.target.value); setPreview(null); }} rows={4} placeholder="Describe what the agent should do and any restrictions it must follow." className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-[#f0f2f3]" /></label>
+        {!requestResult && !preview && <div className="flex flex-wrap gap-2">
+          <ActionButton disabled={!prompt.trim() || !taskId.trim()} onClick={async () => { try { await analyzePrompt(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Analyze prompt</ActionButton>
+          <ActionButton variant="secondary" onClick={() => { setTaskId("Fix the login session bug"); setPrompt(DEMO_PROMPT); setPreview(null); }}>Use demo request</ActionButton>
+        </div>}
+        {!requestResult && preview && <div className="space-y-3 rounded-xl border bg-[#f6f2ec] p-4">
+          <div>
+            <p className="text-sm font-semibold">Review what will be recorded</p>
+            <p className="mt-1 text-xs text-[#64717c]">Edit, add, or remove anything the extraction got wrong. Changing the prompt returns you to the Analyze prompt step.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <EditableList label="Objectives" items={objectives} onChange={setObjectives} placeholder="What should the agent accomplish?" />
             <EditableList label="Explicit constraints" items={constraints} onChange={setConstraints} placeholder="What must the agent avoid or preserve?" />
           </div>
-          {extractionError && <p className="mt-2 text-xs text-[#9a3d31]">Automatic extraction was unavailable. Add the objectives and constraints manually.</p>}
+          <dl className="grid gap-3 border-t pt-3 md:grid-cols-2">
+            <KeyValue label="Detected restrictions"><Chips items={preview.explicitlyForbiddenResources.map((item) => item.resource)} /></KeyValue>
+            <KeyValue label="Needs clarification"><Chips items={preview.ambiguities} mono={false} /></KeyValue>
+            {preview.inferredExpectations.length > 0 && <div className="md:col-span-2"><KeyValue label="System suggestions"><Chips items={preview.inferredExpectations.map((item) => item.text)} mono={false} /></KeyValue></div>}
+          </dl>
+          <ActionButton disabled={objectives.every((item) => !item.trim())} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request{edited ? " (edited)" : ""}</ActionButton>
         </div>}
-        {!requestResult && <div className="flex flex-wrap gap-2"><ActionButton disabled={!prompt.trim() || !taskId.trim() || extracting || objectives.every((item) => !item.trim())} onClick={async () => { try { await submitRequest(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; } }}>Record request</ActionButton><ActionButton variant="secondary" onClick={() => { setTaskId("Fix the login session bug"); setPrompt(DEMO_PROMPT); }}>Use demo request</ActionButton></div>}
         {requestResult && <dl className="grid gap-3 rounded-xl border bg-[#f6f2ec] p-4 md:grid-cols-2">
           <KeyValue label="Objectives"><ProvenanceChips items={requestResult.analysis.objectives} /></KeyValue>
           <KeyValue label="Explicit constraints"><ProvenanceChips items={requestResult.analysis.explicitConstraints} /></KeyValue>
