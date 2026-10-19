@@ -1,4 +1,4 @@
-[Try the Demo here](https://combining-holland-howto-bless.trycloudflare.com)
+[HackMIT Project Page](https://plume.hackmit.org/project/vuokj-oqybj-nwnmn-qrhyw)
 ---
 # Periscope
 
